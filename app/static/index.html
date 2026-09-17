@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Viet Anh Staff Assistant</title>
+  <style>
+    :root {
+      --ink: #12212b;
+      --muted: #6f7e84;
+      --paper: #f4f1e8;
+      --panel: #fffdf7;
+      --line: #d9ddd4;
+      --teal: #126d6a;
+      --teal-dark: #0c4d4b;
+      --yellow: #f4c95d;
+      --coral: #e9785b;
+      --shadow: 0 18px 50px rgba(27, 43, 43, .12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+    button, input, select { font: inherit; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+    .sidebar {
+      background: var(--teal-dark);
+      color: #f7f3e9;
+      padding: 28px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { width: 39px; height: 39px; display: grid; place-items: center; background: var(--yellow); color: var(--teal-dark); font-weight: 800; font-family: Arial, sans-serif; border-radius: 10px 10px 10px 2px; }
+    .brand-name { font-size: 18px; line-height: 1.05; }
+    .brand-name small { display: block; margin-top: 5px; color: #b9d4cb; font: 11px Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+    .side-label { margin: 0 0 9px; color: #9fc1ba; font: 10px Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+    .nav-item { display: flex; gap: 10px; align-items: center; padding: 10px 11px; color: #dcebe6; border-radius: 8px; font-size: 15px; }
+    .nav-item.active { background: rgba(255,255,255,.12); color: #fff; }
+    .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--yellow); }
+    .side-note { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.16); color: #b9d4cb; font: 12px/1.6 Arial, sans-serif; }
+    .main { min-width: 0; padding: 34px clamp(20px, 5vw, 70px); }
+    .topbar { max-width: 1100px; margin: 0 auto 30px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    .eyebrow { margin: 0 0 8px; color: var(--teal); font: 11px Arial, sans-serif; letter-spacing: .15em; text-transform: uppercase; font-weight: 700; }
+    h1 { margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1; letter-spacing: -.02em; font-weight: 500; }
+    .intro { max-width: 570px; margin: 12px 0 0; color: var(--muted); font: 14px/1.5 Arial, sans-serif; }
+    .status { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: rgba(255,253,247,.7); padding: 9px 12px; border-radius: 22px; color: var(--muted); font: 12px Arial, sans-serif; white-space: nowrap; }
+    .status i { width: 8px; height: 8px; border-radius: 50%; background: #4ca479; }
+    .workspace { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 295px; gap: 22px; align-items: start; }
+    .chat-panel, .tool-panel { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .chat-panel { min-height: 610px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; }
+    .panel-head { padding: 17px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    .panel-head strong { font-size: 16px; font-weight: 600; }
+    .panel-head span { color: var(--muted); font: 11px Arial, sans-serif; }
+    .messages { flex: 1; padding: 25px 24px; overflow: auto; max-height: 530px; }
+    .welcome { max-width: 530px; animation: rise .45s ease both; }
+    .welcome h2 { margin: 0 0 10px; font-size: 29px; font-weight: 500; }
+    .welcome p { margin: 0 0 22px; color: var(--muted); font: 14px/1.6 Arial, sans-serif; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .suggestion { border: 1px solid var(--line); background: #faf8f0; color: var(--teal-dark); border-radius: 18px; padding: 9px 12px; cursor: pointer; font: 12px Arial, sans-serif; }
+    .suggestion:hover { border-color: var(--teal); background: #eef6f1; }
+    .message { display: flex; gap: 11px; margin: 0 0 22px; animation: rise .3s ease both; }
+    .message.user { justify-content: flex-end; }
+    .avatar { width: 29px; height: 29px; flex: 0 0 29px; display: grid; place-items: center; background: var(--teal); color: white; border-radius: 8px 8px 8px 2px; font: 11px Arial, sans-serif; }
+    .bubble { max-width: 78%; padding: 13px 15px; border-radius: 3px 12px 12px 12px; background: #eef4ed; font: 14px/1.55 Arial, sans-serif; white-space: pre-wrap; }
+    .user .bubble { background: var(--teal-dark); color: white; border-radius: 12px 3px 12px 12px; }
+    .citation { display: block; margin-top: 11px; padding-top: 9px; border-top: 1px solid rgba(18,109,106,.18); color: var(--teal); font-size: 11px; }
+    .composer { padding: 16px; border-top: 1px solid var(--line); background: #fbfaf4; }
+    .composer form { display: flex; gap: 9px; }
+    .composer input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 7px; padding: 13px 14px; outline: none; background: white; color: var(--ink); font: 14px Arial, sans-serif; }
+    .composer input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.1); }
+    .send, .action { border: 0; border-radius: 7px; padding: 0 17px; cursor: pointer; background: var(--coral); color: white; font: 700 12px Arial, sans-serif; }
+    .send:hover, .action:hover { filter: brightness(.94); }
+    .tool-panel { border-radius: 12px; padding: 19px; }
+    .tool-panel h3 { margin: 0 0 5px; font-size: 18px; font-weight: 500; }
+    .tool-panel > p { margin: 0 0 19px; color: var(--muted); font: 12px/1.5 Arial, sans-serif; }
+    label { display: block; margin: 14px 0 6px; color: var(--muted); font: 10px Arial, sans-serif; letter-spacing: .09em; text-transform: uppercase; }
+    select, .debug-input { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); outline: none; font: 13px Arial, sans-serif; }
+    .action { width: 100%; margin-top: 19px; min-height: 38px; background: var(--teal); }
+    .tool-result { margin-top: 14px; color: var(--muted); font: 11px/1.5 Arial, sans-serif; }
+    .tool-result strong { color: var(--teal-dark); }
+    .divider { height: 1px; margin: 22px 0; background: var(--line); }
+    .sources { margin-top: 16px; }
+    .source-chip { display: block; margin-top: 7px; padding: 8px 9px; background: #f4f0e4; border-left: 3px solid var(--yellow); color: var(--ink); font: 11px/1.35 Arial, sans-serif; }
+    @keyframes rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 820px) {
+      .shell { display: block; }
+      .sidebar { padding: 17px 20px; flex-direction: row; align-items: center; gap: 18px; }
+      .sidebar .nav, .side-note { display: none; }
+      .main { padding: 27px 15px; }
+      .topbar { display: block; margin-bottom: 23px; }
+      .status { margin-top: 18px; }
+      .workspace { display: block; }
+      .tool-panel { margin-top: 18px; }
+      .chat-panel { min-height: 570px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">VA</div><div class="brand-name">Staff Assistant<small>Major Education</small></div></div>
+      <nav class="nav"><p class="side-label">Workspace</p><div class="nav-item active"><span class="nav-dot"></span> Hỏi đáp nội bộ</div><div class="nav-item"><span class="nav-dot" style="background:#82b8ae"></span> Knowledge Vault</div><div class="nav-item"><span class="nav-dot" style="background:#e9785b"></span> Draft Review</div></nav>
+      <div class="side-note">Tri thức được lấy từ Obsidian Vault đã duyệt.<br>Không dùng dữ liệu ngoài context.</div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><p class="eyebrow">Internal knowledge desk</p><h1>Hỏi đúng nơi.<br>Đáp có nguồn.</h1><p class="intro">Trợ lý nội bộ cho quy định nhân sự, nghỉ phép, tài chính và quy trình chuyên môn của Trường Việt Anh.</p></div><div class="status"><i></i><span id="statusText">Đang kiểm tra Vault...</span></div></header>
+      <section class="workspace">
+        <section class="chat-panel">
+          <div class="panel-head"><strong>Cuộc trò chuyện</strong><span id="accessBadge">STAFF ACCESS</span></div>
+          <div class="messages" id="messages">
+            <div class="welcome" id="welcome"><h2>Chào bạn, cần tra cứu gì?</h2><p>Tôi chỉ trả lời từ những ghi chú Obsidian đã được phê duyệt và luôn để lại nguồn tham chiếu.</p><div class="suggestions"><button class="suggestion">Tôi cần xin nghỉ phép trước bao lâu?</button><button class="suggestion">Quy trình công tác phí thế nào?</button><button class="suggestion">Liên hệ phòng Nhân sự ở đâu?</button></div></div>
+          </div>
+          <div class="composer"><form id="chatForm"><input id="question" autocomplete="off" placeholder="Nhập câu hỏi về quy định nội bộ..."><button class="send" type="submit">Gửi câu hỏi</button></form></div>
+        </section>
+        <aside class="tool-panel">
+          <h3>Phạm vi truy cập</h3><p>Context được lọc trước khi đưa vào pipeline RAG.</p>
+          <label for="department">Phòng ban</label><select id="department"><option value="">Tất cả phòng ban</option><option>HR</option><option>Finance</option><option>Academic</option><option>Admin</option></select>
+          <label for="access">Quyền người dùng</label><select id="access"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select>
+          <div class="divider"></div><h3>Vault control</h3><p>Đồng bộ các note approved từ thư mục Obsidian hiện tại.</p><button class="action" id="reindex">Reindex Vault</button><div class="tool-result" id="reindexResult">Chưa chạy đồng bộ trong phiên này.</div>
+          <div class="divider"></div><label for="debugQuery">Debug retrieval</label><input class="debug-input" id="debugQuery" placeholder="Ví dụ: nghỉ phép"><button class="action" id="debugSearch">Xem chunks</button><div class="tool-result" id="debugResult"></div>
+        </aside>
+      </section>
+    </main>
+  </div>
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const messages = $('#messages');
+    const question = $('#question');
+    const access = $('#access');
+    const department = $('#department');
+
+    function addMessage(text, type, citations = []) {
+      $('#welcome')?.remove();
+      const wrapper = document.createElement('div');
+      wrapper.className = `message ${type}`;
+      const avatar = type === 'user' ? '' : '<div class="avatar">VA</div>';
+      const citationHtml = citations.length ? `<div class="citation">${citations.map(c => `[Nguồn: ${c.source} > ${c.heading} > ${c.version}]`).join('<br>')}</div>` : '';
+      wrapper.innerHTML = `${avatar}<div class="bubble"></div>`;
+      wrapper.querySelector('.bubble').textContent = text;
+      if (citationHtml) wrapper.querySelector('.bubble').insertAdjacentHTML('beforeend', citationHtml);
+      messages.appendChild(wrapper);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function sendChat(value) {
+      const text = (value || question.value).trim();
+      if (!text) return;
+      addMessage(text, 'user');
+      question.value = '';
+      const loading = 'Đang tra cứu trong Vault...';
+      addMessage(loading, 'assistant');
+      const pending = messages.lastElementChild;
+      try {
+        const response = await fetch('/api/chat-staff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ question: text, user_department: department.value || null, user_access_level: access.value }) });
+        const data = await response.json();
+        pending.remove();
+        addMessage(data.answer + (data.draft_created ? `\n\nDraft đã tạo: ${data.draft_path}` : ''), 'assistant', data.citations || []);
+      } catch (error) {
+        pending.remove();
+        addMessage('Không kết nối được với backend. Hãy kiểm tra server FastAPI.', 'assistant');
+      }
+    }
+
+    $('#chatForm').addEventListener('submit', (event) => { event.preventDefault(); sendChat(); });
+    document.querySelectorAll('.suggestion').forEach(button => button.addEventListener('click', () => sendChat(button.textContent)));
+    access.addEventListener('change', () => { $('#accessBadge').textContent = `${access.value.toUpperCase()} ACCESS`; });
+    $('#reindex').addEventListener('click', async () => {
+      const result = $('#reindexResult'); result.textContent = 'Đang index...';
+      try { const data = await (await fetch('/api/reindex', {method: 'POST'})).json(); result.innerHTML = `<strong>${data.indexed_files} files</strong> · ${data.indexed_chunks} chunks · ${data.graph_edges} links`; }
+      catch { result.textContent = 'Không thể reindex. Kiểm tra backend.'; }
+    });
+    $('#debugSearch').addEventListener('click', async () => {
+      const q = $('#debugQuery').value.trim(); if (!q) return;
+      const result = $('#debugResult'); result.textContent = 'Đang tìm...';
+      try { const rows = await (await fetch(`/api/debug/search?q=${encodeURIComponent(q)}&user_access_level=${access.value}`)).json(); result.innerHTML = rows.length ? rows.slice(0, 4).map(row => `<span class="source-chip"><strong>${row.metadata.source_file || row.metadata.source}</strong><br>score ${Number(row.score).toFixed(3)} · ${row.metadata.heading}</span>`).join('') : 'Không tìm thấy chunks.'; }
+      catch { result.textContent = 'Không thể debug retrieval.'; }
+    });
+    async function loadHealth() { try { const data = await (await fetch('/api/health')).json(); $('#statusText').textContent = `${data.vault_markdown_files} Markdown trong Vault`; } catch { $('#statusText').textContent = 'Backend chưa sẵn sàng'; } }
+    loadHealth();
+  </script>
+</body>
+</html>

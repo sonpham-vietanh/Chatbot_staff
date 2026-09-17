@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viet Anh Staff Assistant — Admin</title>
+<style>
+  :root {
+    --ink: #12212b; --muted: #6f7e84; --paper: #f4f1e8; --panel: #fffdf7;
+    --line: #d9ddd4; --teal: #126d6a; --teal-dark: #0c4d4b; --yellow: #f4c95d;
+    --coral: #e9785b; --shadow: 0 18px 50px rgba(27,43,43,.12);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); background: var(--paper); font-family: Arial, sans-serif; }
+  button, input, select, textarea { font: inherit; }
+  header { background: var(--teal-dark); color: #f7f3e9; padding: 18px 28px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  header small { color: #b9d4cb; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px; display: none; }
+  #login { max-width: 380px; margin: 80px auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px; box-shadow: var(--shadow); }
+  #login h2 { margin-top: 0; font-size: 18px; }
+  #login input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; }
+  #login button, .btn { background: var(--teal); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  #login button:hover, .btn:hover { background: var(--teal-dark); }
+  .btn.secondary { background: transparent; color: var(--teal-dark); border: 1px solid var(--line); }
+  .btn.danger { background: var(--coral); }
+  .error { color: var(--coral); font-size: 13px; min-height: 18px; }
+  .layout { display: grid; grid-template-columns: 380px minmax(0,1fr); gap: 20px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .panel-head select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; }
+  #list { max-height: 74vh; overflow: auto; }
+  .note-row { padding: 12px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .note-row:hover { background: rgba(18,109,106,.06); }
+  .note-row.active { background: rgba(18,109,106,.12); }
+  .note-row .title { font-weight: 600; font-size: 14px; }
+  .note-row .meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .note-row .preview { color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; background: #e8e2cf; color: #6b5c1f; }
+  .badge.approved { background: #dcefe2; color: #276a44; }
+  .badge.rejected { background: #f6dede; color: #9a2f2f; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+  #editor { padding: 18px; }
+  #editor label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  #editor input, #editor textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  #editor textarea { min-height: 320px; font-family: 'Courier New', monospace; font-size: 13px; resize: vertical; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .placeholder { padding: 60px 20px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Viet Anh Staff Assistant</h1>
+    <small>Admin — duyệt nội dung Obsidian</small>
+  </div>
+  <button class="btn secondary" id="logoutBtn" style="display:none">Đăng xuất</button>
+</header>
+
+<div id="login">
+  <h2>Đăng nhập Admin</h2>
+  <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off">
+  <button id="loginBtn">Vào trang quản trị</button>
+  <div class="error" id="loginError"></div>
+</div>
+
+<main id="app">
+  <div class="layout">
+    <div class="panel">
+      <div class="panel-head">
+        <strong>Danh sách note</strong>
+        <select id="statusFilter">
+          <option value="draft">Chờ duyệt (draft)</option>
+          <option value="approved">Đã duyệt</option>
+          <option value="rejected">Đã từ chối</option>
+          <option value="all">Tất cả</option>
+        </select>
+      </div>
+      <div id="list"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><strong id="editorTitle">Chọn một note để xem chi tiết</strong></div>
+      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung.</div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = "/api/admin";
+let token = sessionStorage.getItem("admin_token") || "";
+let notes = [];
+let currentPath = null;
+
+function headers() { return { "X-Admin-Token": token, "Content-Type": "application/json" }; }
+
+async function api(path, options = {}) {
+  const res = await fetch(API + path, { ...options, headers: headers() });
+  if (res.status === 401 || res.status === 503) {
+    sessionStorage.removeItem("admin_token");
+    showLogin(res.status === 503 ? "Server chưa cấu hình ADMIN_TOKEN." : "Token không hợp lệ.");
+    throw new Error("unauthorized");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Lỗi ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function showLogin(message) {
+  document.getElementById("login").style.display = "block";
+  document.getElementById("app").style.display = "none";
+  document.getElementById("logoutBtn").style.display = "none";
+  document.getElementById("loginError").textContent = message || "";
+}
+
+function showApp() {
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("logoutBtn").style.display = "inline-block";
+  loadNotes();
+}
+
+document.getElementById("loginBtn").onclick = () => {
+  const value = document.getElementById("tokenInput").value.trim();
+  if (!value) return;
+  token = value;
+  sessionStorage.setItem("admin_token", token);
+  showApp();
+};
+
+document.getElementById("logoutBtn").onclick = () => {
+  sessionStorage.removeItem("admin_token");
+  token = "";
+  showLogin();
+};
+
+document.getElementById("statusFilter").onchange = loadNotes;
+
+async function loadNotes() {
+  const status = document.getElementById("statusFilter").value;
+  try {
+    notes = await api(`/notes?status=${status}`);
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    document.getElementById("list").innerHTML = `<div class="empty">${error.message}</div>`;
+    return;
+  }
+  renderList();
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  if (!notes.length) {
+    list.innerHTML = '<div class="empty">Không có note nào.</div>';
+    return;
+  }
+  list.innerHTML = notes.map(note => `
+    <div class="note-row ${note.path === currentPath ? 'active' : ''}" data-path="${note.path}">
+      <div class="title">${escapeHtml(note.title)} <span class="badge ${note.status}">${note.status}</span></div>
+      <div class="meta">${escapeHtml(note.department)} · ${escapeHtml(note.owner)} · v${escapeHtml(note.version)}</div>
+      <div class="preview">${escapeHtml(note.preview)}</div>
+    </div>
+  `).join("");
+  list.querySelectorAll(".note-row").forEach(row => {
+    row.onclick = () => openNote(row.dataset.path);
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function openNote(path) {
+  currentPath = path;
+  renderList();
+  let note;
+  try {
+    note = await api(`/notes/detail?path=${encodeURIComponent(path)}`);
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    alert(error.message);
+    return;
+  }
+  document.getElementById("editorTitle").textContent = note.metadata.title || path;
+  const metadataKeys = ["title", "department", "owner", "status", "version", "access_level", "effective_date"];
+  const extraKeys = Object.keys(note.metadata).filter(key => !metadataKeys.includes(key));
+  const fieldHtml = (key) => `
+    <label>${key}</label>
+    <input data-meta="${key}" value="${escapeHtml(note.metadata[key] ?? "")}">
+  `;
+  document.getElementById("editor").innerHTML = `
+    <div class="meta-grid">${metadataKeys.concat(extraKeys).map(fieldHtml).join("")}</div>
+    <label>Nội dung</label>
+    <textarea id="contentBox">${escapeHtml(note.content)}</textarea>
+    <div class="actions">
+      <button class="btn" id="saveBtn">Lưu thay đổi</button>
+      <button class="btn" id="approveBtn">Duyệt (approved)</button>
+      <button class="btn secondary" id="rejectBtn">Từ chối</button>
+      <button class="btn danger" id="deleteBtn">Xoá vĩnh viễn</button>
+    </div>
+  `;
+  document.getElementById("saveBtn").onclick = () => saveNote(path);
+  document.getElementById("approveBtn").onclick = () => setStatus(path, "approve");
+  document.getElementById("rejectBtn").onclick = () => setStatus(path, "reject");
+  document.getElementById("deleteBtn").onclick = () => deleteNote(path);
+}
+
+function collectMetadata() {
+  const metadata = {};
+  document.querySelectorAll("[data-meta]").forEach(input => {
+    metadata[input.dataset.meta] = input.value;
+  });
+  return metadata;
+}
+
+async function saveNote(path) {
+  const metadata = collectMetadata();
+  const content = document.getElementById("contentBox").value;
+  try {
+    await api(`/notes?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ metadata, content }),
+    });
+    await loadNotes();
+    alert("Đã lưu.");
+  } catch (error) {
+    if (error.message !== "unauthorized") alert(error.message);
+  }
+}
+
+async function setStatus(path, action) {
+  try {
+    await api(`/notes/${action}?path=${encodeURIComponent(path)}`, { method: "POST" });
+    await loadNotes();
+    openNote(path);
+  } catch (error) {
+    if (error.message !== "unauthorized") alert(error.message);
+  }
+}
+
+async function deleteNote(path) {
+  if (!confirm("Xoá vĩnh viễn note này khỏi Obsidian Vault?")) return;
+  try {
+    await api(`/notes?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+    currentPath = null;
+    document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung.</div>';
+    document.getElementById("editorTitle").textContent = "Chọn một note để xem chi tiết";
+    await loadNotes();
+  } catch (error) {
+    if (error.message !== "unauthorized") alert(error.message);
+  }
+}
+
+if (token) { showApp(); } else { showLogin(); }
+</script>
+</body>
+</html>

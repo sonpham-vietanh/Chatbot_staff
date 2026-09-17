@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+data/chroma/
+data/graph_edges.json
+Draft_Review/*.md
+frontend/node_modules/
+frontend/dist/
