@@ -159,7 +159,7 @@
         const response = await fetch('/api/chat-staff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ question: text, user_department: department.value || null, user_access_level: access.value }) });
         const data = await response.json();
         pending.remove();
-        addMessage(data.answer + (data.draft_created ? `\n\nDraft đã tạo: ${data.draft_path}` : ''), 'assistant', data.citations || []);
+        addMessage(data.answer, 'assistant', data.citations || []);
       } catch (error) {
         pending.remove();
         addMessage('Không kết nối được với backend. Hãy kiểm tra server FastAPI.', 'assistant');
