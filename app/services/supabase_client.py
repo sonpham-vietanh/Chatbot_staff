@@ -47,4 +47,6 @@ class SupabaseClient:
     def rpc(self, function_name: str, payload: dict[str, Any]) -> Any:
         response = httpx.post(f"{self.base_url}/rest/v1/rpc/{function_name}", headers=self._headers(), json=payload, timeout=60)
         response.raise_for_status()
+        if not response.content:
+            return None
         return response.json()
