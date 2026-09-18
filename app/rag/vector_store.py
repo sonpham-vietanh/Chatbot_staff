@@ -40,7 +40,7 @@ class VectorStore:
         self.collection.upsert(
             ids=[chunk["id"] for chunk in chunks],
             documents=[chunk["text"] for chunk in chunks],
-            embeddings=[self.embedding_provider.embed(chunk["text"]) for chunk in chunks],
+            embeddings=self.embedding_provider.embed_batch([chunk["text"] for chunk in chunks]),
             metadatas=[chunk["metadata"] for chunk in chunks],
         )
 

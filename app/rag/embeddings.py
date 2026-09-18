@@ -11,6 +11,11 @@ class EmbeddingProvider(ABC):
     def embed(self, text: str) -> list[float]:
         """Chuyển văn bản thành vector."""
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Mặc định gọi embed() tuần tự; provider hỗ trợ batch thật nên override để nhanh hơn
+        nhiều khi reindex hàng trăm chunk (giảm thời gian collection bị rỗng giữa chừng)."""
+        return [self.embed(text) for text in texts]
+
 
 class MockEmbeddingProvider(EmbeddingProvider):
     """Embedding deterministic để chạy demo local, không cần API key."""
@@ -51,22 +56,34 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         self.model = model
         self.url = f"{base_url.rstrip('/')}/embeddings"
 
+    BATCH_SIZE = 64
+
     def embed(self, text: str) -> list[float]:
-        response = httpx.post(
-            self.url,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://127.0.0.1:5173",
-                "X-Title": "Viet Anh Staff Assistant",
-            },
-            json={"model": self.model, "input": text},
-            timeout=60,
-        )
-        if response.is_error:
-            raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {response.text[:500]}")
-        payload = response.json()
-        return list(payload["data"][0]["embedding"])
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        results: list[list[float]] = []
+        for start in range(0, len(texts), self.BATCH_SIZE):
+            batch = texts[start:start + self.BATCH_SIZE]
+            response = httpx.post(
+                self.url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "http://127.0.0.1:5173",
+                    "X-Title": "Viet Anh Staff Assistant",
+                },
+                json={"model": self.model, "input": batch},
+                timeout=120,
+            )
+            if response.is_error:
+                raise RuntimeError(f"OpenRouter HTTP {response.status_code}: {response.text[:500]}")
+            payload = response.json()
+            ordered = sorted(payload["data"], key=lambda item: item["index"])
+            results.extend(item["embedding"] for item in ordered)
+        return results
 
 
 def build_embedding_provider(name: str, api_key: str | None = None,

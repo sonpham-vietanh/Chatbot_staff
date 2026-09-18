@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import re
+from threading import Lock
 from typing import Any
 
 from app.config import Settings
@@ -47,12 +48,17 @@ class AdvancedRAGPipeline:
         self.loader = ObsidianLoader(settings.obsidian_vault_path, settings.graph_path)
         self.vault = VaultService(settings.obsidian_vault_path, settings.graph_path)
         self.graph = GraphService(settings.graph_path, self.vault)
+        self._reindex_lock = Lock()
 
     def reindex(self) -> ReindexStats:
-        chunks, indexed_files, graph_edges = self.loader.load_approved_chunks()
-        self.vector_store.reset()
-        self.vector_store.upsert([{"id": chunk.id, "text": chunk.text, "metadata": chunk.metadata} for chunk in chunks])
-        return ReindexStats(indexed_files, len(chunks), graph_edges)
+        """Khoá để 2 lần reindex (vd watcher tự động + nút 'Đồng bộ AI' thủ công bấm gần
+        như cùng lúc) không bao giờ chạy chồng nhau — reset() của lần sau có thể xoá mất
+        dữ liệu lần trước đang upsert dở, gây vector store rỗng ngẫu nhiên."""
+        with self._reindex_lock:
+            chunks, indexed_files, graph_edges = self.loader.load_approved_chunks()
+            self.vector_store.reset()
+            self.vector_store.upsert([{"id": chunk.id, "text": chunk.text, "metadata": chunk.metadata} for chunk in chunks])
+            return ReindexStats(indexed_files, len(chunks), graph_edges)
 
     def retrieve(self, question: str, user_department: str | None = None,
                  user_access_level: str = "staff", version: str | None = None,
