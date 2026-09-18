@@ -47,6 +47,14 @@
   .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
   .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
   .placeholder { padding: 60px 20px; text-align: center; color: var(--muted); }
+  .panel-head-actions { display: flex; gap: 8px; }
+  .btn.small { padding: 6px 10px; font-size: 12px; }
+  #toast { position: fixed; top: 16px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { background: var(--teal-dark); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 12px; box-shadow: var(--shadow); max-width: 320px; }
+  .toast-item.error { background: var(--coral); }
+  #editor select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .drop-zone { border: 2px dashed var(--line); border-radius: 10px; padding: 30px 16px; text-align: center; color: var(--muted); cursor: pointer; }
+  .drop-zone.drag { border-color: var(--teal); background: rgba(18,109,106,.06); }
 </style>
 </head>
 <body>
@@ -66,6 +74,7 @@
 </div>
 
 <main id="app">
+  <div id="toast"></div>
   <div class="layout">
     <div class="panel">
       <div class="panel-head">
@@ -77,17 +86,24 @@
           <option value="all">Tất cả</option>
         </select>
       </div>
+      <div class="panel-head panel-head-actions" style="border-top:1px solid var(--line)">
+        <button class="btn small" id="newNoteBtn">+ Tạo note mới</button>
+        <button class="btn small secondary" id="uploadBtn">Upload file</button>
+      </div>
       <div id="list"></div>
     </div>
     <div class="panel">
       <div class="panel-head"><strong id="editorTitle">Chọn một note để xem chi tiết</strong></div>
-      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung.</div></div>
+      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung, hoặc bấm "Tạo note mới" / "Upload file".</div></div>
     </div>
   </div>
 </main>
 
 <script>
 const API = "/api/admin";
+const DEPARTMENTS = ["Unassigned", "HR", "Finance", "Academic", "Admin"];
+const ACCESS_LEVELS = ["staff", "manager", "admin"];
+const STATUSES = ["draft", "approved", "rejected"];
 let token = sessionStorage.getItem("admin_token") || "";
 let notes = [];
 let currentPath = null;
@@ -106,6 +122,38 @@ async function api(path, options = {}) {
     throw new Error(body.detail || `Lỗi ${res.status}`);
   }
   return res.status === 204 ? null : res.json();
+}
+
+async function apiUpload(path, formData) {
+  const res = await fetch(API + path, { method: "POST", headers: { "X-Admin-Token": token }, body: formData });
+  if (res.status === 401 || res.status === 503) {
+    sessionStorage.removeItem("admin_token");
+    showLogin(res.status === 503 ? "Server chưa cấu hình ADMIN_TOKEN." : "Token không hợp lệ.");
+    throw new Error("unauthorized");
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `Lỗi ${res.status}`);
+  return body;
+}
+
+function toast(message, isError) {
+  const container = document.getElementById("toast");
+  const item = document.createElement("div");
+  item.className = `toast-item ${isError ? "error" : ""}`;
+  item.textContent = message;
+  container.appendChild(item);
+  setTimeout(() => item.remove(), 5000);
+}
+
+async function syncToAI() {
+  try {
+    const res = await fetch("/api/reindex", { method: "POST" });
+    if (!res.ok) throw new Error(`Lỗi ${res.status}`);
+    const stats = await res.json();
+    toast(`Đã đồng bộ AI: ${stats.indexed_files} file, ${stats.indexed_chunks} chunk.`);
+  } catch (error) {
+    toast(`Đồng bộ AI thất bại: ${error.message}`, true);
+  }
 }
 
 function showLogin(message) {
@@ -186,10 +234,15 @@ async function openNote(path) {
   document.getElementById("editorTitle").textContent = note.metadata.title || path;
   const metadataKeys = ["title", "department", "owner", "status", "version", "access_level", "effective_date"];
   const extraKeys = Object.keys(note.metadata).filter(key => !metadataKeys.includes(key));
-  const fieldHtml = (key) => `
-    <label>${key}</label>
-    <input data-meta="${key}" value="${escapeHtml(note.metadata[key] ?? "")}">
-  `;
+  const selectOptions = { department: DEPARTMENTS, status: STATUSES, access_level: ACCESS_LEVELS };
+  const fieldHtml = (key) => {
+    const current = note.metadata[key] ?? "";
+    if (selectOptions[key]) {
+      const options = selectOptions[key].includes(current) ? selectOptions[key] : [current, ...selectOptions[key]];
+      return `<label>${key}</label><select data-meta="${key}">${options.map(opt => `<option value="${escapeHtml(opt)}" ${opt === current ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("")}</select>`;
+    }
+    return `<label>${key}</label><input data-meta="${key}" value="${escapeHtml(current)}">`;
+  };
   document.getElementById("editor").innerHTML = `
     <div class="meta-grid">${metadataKeys.concat(extraKeys).map(fieldHtml).join("")}</div>
     <label>Nội dung</label>
@@ -224,9 +277,10 @@ async function saveNote(path) {
       body: JSON.stringify({ metadata, content }),
     });
     await loadNotes();
-    alert("Đã lưu.");
+    toast("Đã lưu note.");
+    syncToAI();
   } catch (error) {
-    if (error.message !== "unauthorized") alert(error.message);
+    if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
 
@@ -235,8 +289,9 @@ async function setStatus(path, action) {
     await api(`/notes/${action}?path=${encodeURIComponent(path)}`, { method: "POST" });
     await loadNotes();
     openNote(path);
+    syncToAI();
   } catch (error) {
-    if (error.message !== "unauthorized") alert(error.message);
+    if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
 
@@ -245,13 +300,116 @@ async function deleteNote(path) {
   try {
     await api(`/notes?path=${encodeURIComponent(path)}`, { method: "DELETE" });
     currentPath = null;
-    document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung.</div>';
-    document.getElementById("editorTitle").textContent = "Chọn một note để xem chi tiết";
+    resetEditor();
     await loadNotes();
+    syncToAI();
   } catch (error) {
-    if (error.message !== "unauthorized") alert(error.message);
+    if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
+
+function resetEditor() {
+  document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung, hoặc bấm "Tạo note mới" / "Upload file".</div>';
+  document.getElementById("editorTitle").textContent = "Chọn một note để xem chi tiết";
+}
+
+function departmentOptions(selected) {
+  return DEPARTMENTS.map(dep => `<option value="${dep}" ${dep === selected ? "selected" : ""}>${dep}</option>`).join("");
+}
+
+function showNewNoteForm() {
+  currentPath = null;
+  renderList();
+  document.getElementById("editorTitle").textContent = "Tạo note mới";
+  document.getElementById("editor").innerHTML = `
+    <label>Tiêu đề</label>
+    <input id="newTitle" placeholder="Vd: Quy định nghỉ phép 2026">
+    <label>Phòng ban</label>
+    <select id="newDepartment">${departmentOptions("Unassigned")}</select>
+    <label>Nội dung (Markdown)</label>
+    <textarea id="newContent" placeholder="Nhập nội dung quy định..."></textarea>
+    <div class="actions">
+      <button class="btn" id="createDraftBtn">Lưu nháp (draft)</button>
+      <button class="btn" id="createApprovedBtn">Lưu & Duyệt luôn</button>
+    </div>
+  `;
+  document.getElementById("createDraftBtn").onclick = () => createNote("draft");
+  document.getElementById("createApprovedBtn").onclick = () => createNote("approved");
+}
+
+async function createNote(status) {
+  const title = document.getElementById("newTitle").value.trim();
+  const department = document.getElementById("newDepartment").value;
+  const content = document.getElementById("newContent").value.trim();
+  if (!title || !content) { toast("Cần nhập tiêu đề và nội dung.", true); return; }
+  try {
+    const result = await api("/notes/create", {
+      method: "POST",
+      body: JSON.stringify({ title, department, content, status }),
+    });
+    await loadNotes();
+    toast(status === "approved" ? "Đã tạo & duyệt note." : "Đã tạo note nháp.");
+    syncToAI();
+    openNote(result.path);
+  } catch (error) {
+    if (error.message !== "unauthorized") toast(error.message, true);
+  }
+}
+
+function showUploadForm() {
+  currentPath = null;
+  renderList();
+  document.getElementById("editorTitle").textContent = "Upload file";
+  document.getElementById("editor").innerHTML = `
+    <label>Phòng ban</label>
+    <select id="uploadDepartment">${departmentOptions("Unassigned")}</select>
+    <label>Tiêu đề (tuỳ chọn)</label>
+    <input id="uploadTitle" placeholder="Để trống sẽ lấy theo tên file">
+    <label>File</label>
+    <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx .png .jpg .webp — tối đa 10MB</small></div>
+    <input type="file" id="uploadFileInput" class="hidden" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx,.png,.jpg,.jpeg,.webp">
+    <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload → tạo draft</button></div>
+  `;
+  const dropZone = document.getElementById("dropZone");
+  const fileInput = document.getElementById("uploadFileInput");
+  const submitBtn = document.getElementById("uploadSubmitBtn");
+  let selectedFile = null;
+  const setFile = (file) => {
+    selectedFile = file;
+    submitBtn.disabled = !file;
+    dropZone.textContent = file ? `Đã chọn: ${file.name}` : "Kéo thả file vào đây, hoặc bấm để chọn";
+  };
+  dropZone.onclick = () => fileInput.click();
+  fileInput.onchange = () => setFile(fileInput.files?.[0] || null);
+  dropZone.ondragover = (event) => { event.preventDefault(); dropZone.classList.add("drag"); };
+  dropZone.ondragleave = () => dropZone.classList.remove("drag");
+  dropZone.ondrop = (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("drag");
+    setFile(event.dataTransfer.files?.[0] || null);
+  };
+  submitBtn.onclick = async () => {
+    if (!selectedFile) return;
+    const form = new FormData();
+    form.append("file", selectedFile);
+    form.append("department", document.getElementById("uploadDepartment").value);
+    const title = document.getElementById("uploadTitle").value.trim();
+    if (title) form.append("title", title);
+    try {
+      await apiUpload("/upload", form);
+      document.getElementById("statusFilter").value = "draft";
+      await loadNotes();
+      resetEditor();
+      toast("Đã upload, tạo draft chờ duyệt — chọn note trong danh sách để xem/duyệt.");
+      syncToAI();
+    } catch (error) {
+      if (error.message !== "unauthorized") toast(error.message, true);
+    }
+  };
+}
+
+document.getElementById("newNoteBtn").onclick = showNewNoteForm;
+document.getElementById("uploadBtn").onclick = showUploadForm;
 
 if (token) { showApp(); } else { showLogin(); }
 </script>

@@ -48,3 +48,11 @@ class ReindexResponse(BaseModel):
 class NoteUpdateRequest(BaseModel):
     metadata: dict[str, Any]
     content: str
+
+
+class NoteCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    department: str = "Unassigned"
+    content: str = Field(min_length=1)
+    access_level: str = "staff"
+    status: str = "draft"

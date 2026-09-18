@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query
 import frontmatter
 
 from app.config import Settings, get_settings
-from app.models.schemas import ChatRequest, ChatResponse, NoteUpdateRequest, ReindexResponse, SearchResult
+from app.models.schemas import ChatRequest, ChatResponse, NoteCreateRequest, NoteUpdateRequest, ReindexResponse, SearchResult
 from app.services.admin_service import AdminService, InvalidNotePathError, NoteNotFoundError
 from app.services.rag_service import RAGService
 from app.services.knowledge_ingest import KnowledgeIngestService
@@ -35,11 +35,6 @@ def require_admin(
         raise HTTPException(status_code=401, detail="Admin token không hợp lệ")
 
 
-def require_knowledge_editor(user_department: str, user_access_level: str) -> None:
-    if user_department.casefold() != "hr" and user_access_level.casefold() != "admin":
-        raise HTTPException(status_code=403, detail="Chỉ HR hoặc admin được upload dữ liệu vào Obsidian")
-
-
 @router.get("/health")
 def health(settings: Settings = Depends(get_settings)) -> dict[str, str | int]:
     markdown_files = list(settings.obsidian_vault_path.rglob("*.md")) if settings.obsidian_vault_path.is_dir() else []
@@ -67,26 +62,6 @@ def reindex(rag: RAGService = Depends(get_rag_service)) -> ReindexResponse:
         indexed_chunks=stats.indexed_chunks,
         graph_edges=stats.graph_edges,
     )
-
-
-@router.post("/knowledge/upload")
-async def upload_knowledge(
-    file: UploadFile = File(...),
-    user_department: str = Form(...),
-    user_access_level: str = Form("staff"),
-    title: str | None = Form(None),
-    settings: Settings = Depends(get_settings),
-) -> dict[str, object]:
-    require_knowledge_editor(user_department, user_access_level)
-    content = await file.read()
-    try:
-        return KnowledgeIngestService(settings.obsidian_vault_path).ingest(
-            file.filename or "upload", content, user_department, title
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Không thể ghi dữ liệu vào Obsidian: {error}") from error
 
 
 @router.get("/debug/search", response_model=list[SearchResult])
@@ -186,3 +161,27 @@ def admin_delete_note(path: str, admin: AdminService = Depends(get_admin_service
     except InvalidNotePathError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"status": "deleted"}
+
+
+@router.post("/admin/notes/create", dependencies=[Depends(require_admin)])
+def admin_create_note(body: NoteCreateRequest, admin: AdminService = Depends(get_admin_service)) -> dict[str, str]:
+    path = admin.create_note(body.title, body.department, body.content, body.access_level, body.status)
+    return {"status": "created", "path": path}
+
+
+@router.post("/admin/upload", dependencies=[Depends(require_admin)])
+async def admin_upload_knowledge(
+    file: UploadFile = File(...),
+    department: str = Form("Unassigned"),
+    title: str | None = Form(None),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    content = await file.read()
+    try:
+        return KnowledgeIngestService(settings.obsidian_vault_path).ingest(
+            file.filename or "upload", content, department, title
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Không thể ghi dữ liệu vào Obsidian: {error}") from error
