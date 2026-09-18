@@ -11,65 +11,113 @@
     --coral: #e9785b; --shadow: 0 18px 50px rgba(27,43,43,.12);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; color: var(--ink); background: var(--paper); font-family: Arial, sans-serif; }
+  body { margin: 0; color: var(--ink); background: var(--paper); font-family: Arial, sans-serif; -webkit-font-smoothing: antialiased; }
   button, input, select, textarea { font: inherit; }
-  header { background: var(--teal-dark); color: #f7f3e9; padding: 18px 28px; display: flex; justify-content: space-between; align-items: center; }
-  header h1 { font-size: 18px; margin: 0; }
-  header small { color: #b9d4cb; }
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px; display: none; }
-  #login { max-width: 380px; margin: 80px auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px; box-shadow: var(--shadow); }
-  #login h2 { margin-top: 0; font-size: 18px; }
-  #login input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; }
-  #login button, .btn { background: var(--teal); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
-  #login button:hover, .btn:hover { background: var(--teal-dark); }
+  h1, h2, .serif { font-family: Georgia, 'Times New Roman', serif; }
+
+  /* ---- header ---- */
+  header { background: var(--teal-dark); color: #f7f3e9; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; background: var(--yellow); color: var(--teal-dark); font-weight: 800; font-family: Arial, sans-serif; font-size: 13px; border-radius: 10px 10px 10px 2px; flex-shrink: 0; }
+  header h1 { font-size: 17px; margin: 0; line-height: 1.15; font-weight: 500; }
+  header small { display: block; margin-top: 3px; color: #b9d4cb; font: 10px Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+
+  /* ---- buttons ---- */
+  .btn { background: var(--teal); color: #fff; border: none; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background .15s, transform .1s, opacity .15s; }
+  .btn:hover { background: var(--teal-dark); }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn.secondary { background: transparent; color: var(--teal-dark); border: 1px solid var(--line); }
+  .btn.secondary:hover { background: #eef1ec; }
   .btn.danger { background: var(--coral); }
-  .error { color: var(--coral); font-size: 13px; min-height: 18px; }
-  .layout { display: grid; grid-template-columns: 380px minmax(0,1fr); gap: 20px; align-items: start; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
-  .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-  .panel-head select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; }
-  #list { max-height: 74vh; overflow: auto; }
-  .note-row { padding: 12px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .note-row:hover { background: rgba(18,109,106,.06); }
-  .note-row.active { background: rgba(18,109,106,.12); }
-  .note-row .title { font-weight: 600; font-size: 14px; }
-  .note-row .meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
-  .note-row .preview { color: var(--muted); font-size: 12px; margin-top: 5px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; background: #e8e2cf; color: #6b5c1f; }
+  .btn.danger:hover { background: #d9654a; }
+  .btn.small { padding: 7px 12px; font-size: 12px; border-radius: 7px; }
+  .btn.ghost { background: rgba(255,255,255,.1); color: #f7f3e9; border: 1px solid rgba(255,255,255,.22); }
+  .btn.ghost:hover { background: rgba(255,255,255,.18); }
+
+  /* ---- login ---- */
+  #login { max-width: 400px; margin: 12vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 36px 32px; box-shadow: var(--shadow); }
+  #login .brand-mark { margin: 0 auto 18px; width: 46px; height: 46px; font-size: 16px; }
+  #login h2 { margin: 0 0 6px; font-size: 21px; text-align: center; font-weight: 500; }
+  #login p { margin: 0 0 22px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  #login input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 12px; font-size: 14px; outline: none; transition: border-color .15s, box-shadow .15s; }
+  #login input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.12); }
+  #login .btn { width: 100%; padding: 12px; font-size: 14px; }
+  .error { color: var(--coral); font-size: 12.5px; min-height: 18px; margin-top: 10px; text-align: center; }
+
+  /* ---- layout ---- */
+  main { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; display: none; }
+  .layout { display: grid; grid-template-columns: 400px minmax(0,1fr); gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .panel-head strong { font-size: 14px; font-weight: 700; }
+  .panel-head select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; color: var(--ink); }
+  .panel-head-actions { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: rgba(18,109,106,.03); }
+
+  /* ---- note list ---- */
+  #list { max-height: 72vh; overflow: auto; }
+  .note-row { padding: 14px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .12s; }
+  .note-row:last-child { border-bottom: none; }
+  .note-row:hover { background: rgba(18,109,106,.05); }
+  .note-row.active { background: rgba(18,109,106,.1); box-shadow: inset 3px 0 0 var(--teal); }
+  .note-row .row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .note-row .title { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note-row .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .note-row .preview { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: #ede4c8; color: #7a611f; flex-shrink: 0; }
   .badge.approved { background: #dcefe2; color: #276a44; }
   .badge.rejected { background: #f6dede; color: #9a2f2f; }
-  .empty { padding: 30px; text-align: center; color: var(--muted); }
-  #editor { padding: 18px; }
-  #editor label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-  #editor input, #editor textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
-  #editor textarea { min-height: 320px; font-family: 'Courier New', monospace; font-size: 13px; resize: vertical; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-  .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-  .placeholder { padding: 60px 20px; text-align: center; color: var(--muted); }
-  .panel-head-actions { display: flex; gap: 8px; }
-  .btn.small { padding: 6px 10px; font-size: 12px; }
-  #toast { position: fixed; top: 16px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
-  .toast-item { background: var(--teal-dark); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 12px; box-shadow: var(--shadow); max-width: 320px; }
+  .badge.unknown { background: #e8e2cf; color: #6b5c1f; }
+
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ---- editor ---- */
+  #editor { padding: 22px; }
+  #editor label { display: block; font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 5px; }
+  #editor label:first-child { margin-top: 0; }
+  #editor input, #editor select, #editor textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff;
+    font-size: 13.5px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  #editor input:focus, #editor select:focus, #editor textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.1); }
+  #editor textarea { min-height: 360px; font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.55; resize: vertical; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--line); }
+  .placeholder { padding: 90px 24px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+  /* ---- toast ---- */
+  #toast { position: fixed; top: 18px; right: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { background: var(--teal-dark); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 12.5px; box-shadow: var(--shadow); max-width: 340px; animation: toast-in .2s ease both; }
   .toast-item.error { background: var(--coral); }
-  #editor select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-  .drop-zone { border: 2px dashed var(--line); border-radius: 10px; padding: 30px 16px; text-align: center; color: var(--muted); cursor: pointer; }
-  .drop-zone.drag { border-color: var(--teal); background: rgba(18,109,106,.06); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---- upload drop zone ---- */
+  .drop-zone { border: 2px dashed var(--line); border-radius: 12px; padding: 36px 16px; text-align: center; color: var(--muted); cursor: pointer; font-size: 13px; transition: border-color .15s, background .15s; }
+  .drop-zone:hover { border-color: #b7c4bd; }
+  .drop-zone.drag { border-color: var(--teal); background: rgba(18,109,106,.06); color: var(--teal-dark); }
+  .drop-zone small { display: block; margin-top: 6px; color: #9aa7a4; }
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>Viet Anh Staff Assistant</h1>
-    <small>Admin — duyệt nội dung (Supabase)</small>
+  <div class="brand">
+    <div class="brand-mark">VA</div>
+    <div>
+      <h1 class="serif">Staff Assistant</h1>
+      <small>Admin · Supabase</small>
+    </div>
   </div>
-  <button class="btn secondary" id="logoutBtn" style="display:none">Đăng xuất</button>
+  <button class="btn ghost small" id="logoutBtn" style="display:none">Đăng xuất</button>
 </header>
 
 <div id="login">
-  <h2>Đăng nhập Admin</h2>
+  <div class="brand-mark">VA</div>
+  <h2 class="serif">Đăng nhập Admin</h2>
+  <p>Nhập admin token để quản lý nội dung tri thức.</p>
   <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off">
-  <button id="loginBtn">Vào trang quản trị</button>
+  <button class="btn" id="loginBtn">Vào trang quản trị</button>
   <div class="error" id="loginError"></div>
 </div>
 
@@ -78,7 +126,7 @@
   <div class="layout">
     <div class="panel">
       <div class="panel-head">
-        <strong>Danh sách note</strong>
+        <strong class="serif">Danh sách note</strong>
         <select id="statusFilter">
           <option value="draft">Chờ duyệt (draft)</option>
           <option value="approved">Đã duyệt</option>
@@ -86,15 +134,15 @@
           <option value="all">Tất cả</option>
         </select>
       </div>
-      <div class="panel-head panel-head-actions" style="border-top:1px solid var(--line)">
+      <div class="panel-head-actions">
         <button class="btn small" id="newNoteBtn">+ Tạo note mới</button>
         <button class="btn small secondary" id="uploadBtn">Upload file</button>
       </div>
       <div id="list"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><strong id="editorTitle">Chọn một note để xem chi tiết</strong></div>
-      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung, hoặc bấm "Tạo note mới" / "Upload file".</div></div>
+      <div class="panel-head"><strong class="serif" id="editorTitle">Chọn một note để xem chi tiết</strong></div>
+      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Tạo note mới" / "Upload file".</div></div>
     </div>
   </div>
 </main>
@@ -167,6 +215,10 @@ document.getElementById("loginBtn").onclick = () => {
   showApp();
 };
 
+document.getElementById("tokenInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") document.getElementById("loginBtn").click();
+});
+
 document.getElementById("logoutBtn").onclick = () => {
   sessionStorage.removeItem("admin_token");
   token = "";
@@ -195,7 +247,10 @@ function renderList() {
   }
   list.innerHTML = notes.map(note => `
     <div class="note-row ${note.id === currentId ? 'active' : ''}" data-id="${note.id}">
-      <div class="title">${escapeHtml(note.title)} <span class="badge ${note.status}">${note.status}</span></div>
+      <div class="row-top">
+        <div class="title">${escapeHtml(note.title)}</div>
+        <span class="badge ${note.status}">${note.status}</span>
+      </div>
       <div class="meta">${escapeHtml(note.department)} · v${escapeHtml(note.version)}</div>
       <div class="preview">${escapeHtml(note.preview)}</div>
     </div>
@@ -223,11 +278,11 @@ async function openNote(id) {
   document.getElementById("editorTitle").textContent = note.title || id;
   document.getElementById("editor").innerHTML = `
     <div class="meta-grid">
-      <label>title</label><input data-field="title" value="${escapeHtml(note.title)}">
-      <label>department</label><select data-field="department">${departmentOptions(note.department)}</select>
-      <label>status</label><select data-field="status">${optionsFor(STATUSES, note.status)}</select>
-      <label>version</label><input data-field="version" value="${escapeHtml(note.version)}">
-      <label>access_level</label><select data-field="access_level">${optionsFor(ACCESS_LEVELS, note.access_level)}</select>
+      <label>Tiêu đề</label><input data-field="title" value="${escapeHtml(note.title)}">
+      <label>Phòng ban</label><select data-field="department">${departmentOptions(note.department)}</select>
+      <label>Trạng thái</label><select data-field="status">${optionsFor(STATUSES, note.status)}</select>
+      <label>Version</label><input data-field="version" value="${escapeHtml(note.version)}">
+      <label>Quyền truy cập</label><select data-field="access_level">${optionsFor(ACCESS_LEVELS, note.access_level)}</select>
     </div>
     <label>Nội dung</label>
     <textarea id="contentBox">${escapeHtml(note.content)}</textarea>
@@ -294,7 +349,7 @@ async function deleteNote(id) {
 }
 
 function resetEditor() {
-  document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung, hoặc bấm "Tạo note mới" / "Upload file".</div>';
+  document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Tạo note mới" / "Upload file".</div>';
   document.getElementById("editorTitle").textContent = "Chọn một note để xem chi tiết";
 }
 
@@ -315,7 +370,7 @@ function showNewNoteForm() {
     <textarea id="newContent" placeholder="Nhập nội dung quy định..."></textarea>
     <div class="actions">
       <button class="btn" id="createDraftBtn">Lưu nháp (draft)</button>
-      <button class="btn" id="createApprovedBtn">Lưu & Duyệt luôn</button>
+      <button class="btn secondary" id="createApprovedBtn">Lưu & Duyệt luôn</button>
     </div>
   `;
   document.getElementById("createDraftBtn").onclick = () => createNote("draft");
@@ -351,7 +406,7 @@ function showUploadForm() {
     <input id="uploadTitle" placeholder="Để trống sẽ lấy theo tên file">
     <label>File</label>
     <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small></div>
-    <input type="file" id="uploadFileInput" class="hidden" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
+    <input type="file" id="uploadFileInput" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
     <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload → tạo draft</button></div>
   `;
   const dropZone = document.getElementById("dropZone");
@@ -361,7 +416,7 @@ function showUploadForm() {
   const setFile = (file) => {
     selectedFile = file;
     submitBtn.disabled = !file;
-    dropZone.textContent = file ? `Đã chọn: ${file.name}` : "Kéo thả file vào đây, hoặc bấm để chọn";
+    dropZone.innerHTML = file ? `Đã chọn: <strong>${escapeHtml(file.name)}</strong>` : 'Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small>';
   };
   dropZone.onclick = () => fileInput.click();
   fileInput.onchange = () => setFile(fileInput.files?.[0] || null);
