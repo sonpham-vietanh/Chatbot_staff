@@ -3,11 +3,14 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.config import get_settings
 from app.rag.pipeline import AdvancedRAGPipeline
 from app.services.vault_watcher import VaultWatcher
+
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager
@@ -40,9 +43,16 @@ app = FastAPI(
 )
 app.include_router(router)
 
+if (FRONTEND_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
+
 
 @app.get("/", include_in_schema=False)
 def demo_ui() -> FileResponse:
+    """Ở production (Docker), frontend/dist đã được build sẵn nên phục vụ luôn React app thật;
+    ở local dev (chưa build) fallback về trang demo tĩnh để không phá luồng chạy hiện tại."""
+    if (FRONTEND_DIST / "index.html").is_file():
+        return FileResponse(FRONTEND_DIST / "index.html")
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
