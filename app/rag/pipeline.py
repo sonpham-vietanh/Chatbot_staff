@@ -14,7 +14,7 @@ from app.services.obsidian import ObsidianLoader
 from app.services.vault_service import VaultService
 
 
-CITATION_PATTERN = re.compile(r"\[Nguồn:\s*([^>\]]+?)\s*>\s*([^>\]]+?)\s*>\s*([^\]]+?)\]")
+CITATION_LINE_PATTERN = re.compile(r"^\s*\[Nguồn:\s*(.+?)\]?\s*$", re.MULTILINE)
 MAX_HISTORY_TURNS = 6
 
 
@@ -99,7 +99,8 @@ class AdvancedRAGPipeline:
                 "draft_path": str(draft_path),
             }
         citations = self._parse_citations(answer) if grounded_seeds else []
-        return {"answer": answer, "grounded": bool(citations), "citations": citations, "draft_created": False, "draft_path": None}
+        display_answer = self._strip_citation_tags(answer) if citations else answer
+        return {"answer": display_answer, "grounded": bool(citations), "citations": citations, "draft_created": False, "draft_path": None}
 
     @staticmethod
     def _retrieval_query(question: str, history: list[dict] | None) -> str:
@@ -111,11 +112,30 @@ class AdvancedRAGPipeline:
         return f"{last_user_turn} {question}" if last_user_turn else question
 
     @staticmethod
+    def _strip_citation_tags(answer: str) -> str:
+        """Bỏ dòng [Nguồn: ...] khỏi text hiển thị cho người dùng — citation đã hiển thị
+        riêng ở phần Sources trên giao diện, không cần lặp lại trong câu trả lời."""
+        without_tags = CITATION_LINE_PATTERN.sub("", answer)
+        lines = [line.rstrip() for line in without_tags.splitlines()]
+        cleaned: list[str] = []
+        for line in lines:
+            if line or (cleaned and cleaned[-1]):
+                cleaned.append(line)
+        return "\n".join(cleaned).strip()
+
+    @staticmethod
     def _parse_citations(answer: str) -> list[dict[str, str]]:
-        """Lấy citation trực tiếp từ tag [Nguồn: ...] mà LLM thực sự trích trong câu trả lời,
-        tránh gắn nhầm nguồn không liên quan (vd. câu chào hỏi trùng ngẫu nhiên với top-k)."""
+        """Lấy citation trực tiếp từ dòng [Nguồn: ...] mà LLM thực sự trích trong câu trả lời,
+        tránh gắn nhầm nguồn không liên quan (vd. câu chào hỏi trùng ngẫu nhiên với top-k).
+        Parse theo dòng, không bắt buộc dấu ']' đóng chuẩn vì model đôi khi bỏ sót."""
         unique: dict[tuple[str, str, str], dict[str, str]] = {}
-        for source, heading, version in CITATION_PATTERN.findall(answer):
-            citation = {"source": source.strip(), "heading": heading.strip(), "version": version.strip()}
-            unique[(citation["source"], citation["heading"], citation["version"])] = citation
+        for raw in CITATION_LINE_PATTERN.findall(answer):
+            parts = [part.strip() for part in raw.split(">")]
+            if not parts or not parts[0]:
+                continue
+            source = parts[0]
+            heading = parts[1] if len(parts) > 1 else "Nội dung chung"
+            version = " > ".join(parts[2:]) if len(parts) > 2 else "unknown"
+            citation = {"source": source, "heading": heading, "version": version}
+            unique[(source, heading, version)] = citation
         return list(unique.values())
