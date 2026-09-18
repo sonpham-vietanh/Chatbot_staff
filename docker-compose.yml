@@ -6,6 +6,8 @@ services:
     environment:
       APP_NAME: "Viet Anh Staff Assistant"
       ENVIRONMENT: "production"
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_KEY}"
       EMBEDDING_PROVIDER: "openrouter"
       LLM_PROVIDER: "openrouter"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
@@ -15,18 +17,4 @@ services:
       ADMIN_TOKEN: "${ADMIN_TOKEN}"
       TOP_K: "20"
       MIN_RELEVANCE_SCORE: "0.22"
-      GRAPH_MAX_FILES: "4"
-      GRAPH_MAX_CHUNKS: "14"
-      CONTEXT_MAX_CHARS: "12000"
-      VAULT_WATCHER_ENABLED: "true"
-      VAULT_WATCHER_DEBOUNCE_SECONDS: "2.0"
-    volumes:
-      - vault-data:/app/vault
-      - chroma-data:/app/data
-      - draft-review:/app/Draft_Review
     restart: unless-stopped
-
-volumes:
-  vault-data:
-  chroma-data:
-  draft-review:

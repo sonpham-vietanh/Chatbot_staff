@@ -61,7 +61,7 @@
 <header>
   <div>
     <h1>Viet Anh Staff Assistant</h1>
-    <small>Admin — duyệt nội dung Obsidian</small>
+    <small>Admin — duyệt nội dung (Supabase)</small>
   </div>
   <button class="btn secondary" id="logoutBtn" style="display:none">Đăng xuất</button>
 </header>
@@ -106,7 +106,7 @@ const ACCESS_LEVELS = ["staff", "manager", "admin"];
 const STATUSES = ["draft", "approved", "rejected"];
 let token = sessionStorage.getItem("admin_token") || "";
 let notes = [];
-let currentPath = null;
+let currentId = null;
 
 function headers() { return { "X-Admin-Token": token, "Content-Type": "application/json" }; }
 
@@ -143,17 +143,6 @@ function toast(message, isError) {
   item.textContent = message;
   container.appendChild(item);
   setTimeout(() => item.remove(), 5000);
-}
-
-async function syncToAI() {
-  try {
-    const res = await fetch("/api/reindex", { method: "POST" });
-    if (!res.ok) throw new Error(`Lỗi ${res.status}`);
-    const stats = await res.json();
-    toast(`Đã đồng bộ AI: ${stats.indexed_files} file, ${stats.indexed_chunks} chunk.`);
-  } catch (error) {
-    toast(`Đồng bộ AI thất bại: ${error.message}`, true);
-  }
 }
 
 function showLogin(message) {
@@ -205,14 +194,14 @@ function renderList() {
     return;
   }
   list.innerHTML = notes.map(note => `
-    <div class="note-row ${note.path === currentPath ? 'active' : ''}" data-path="${note.path}">
+    <div class="note-row ${note.id === currentId ? 'active' : ''}" data-id="${note.id}">
       <div class="title">${escapeHtml(note.title)} <span class="badge ${note.status}">${note.status}</span></div>
-      <div class="meta">${escapeHtml(note.department)} · ${escapeHtml(note.owner)} · v${escapeHtml(note.version)}</div>
+      <div class="meta">${escapeHtml(note.department)} · v${escapeHtml(note.version)}</div>
       <div class="preview">${escapeHtml(note.preview)}</div>
     </div>
   `).join("");
   list.querySelectorAll(".note-row").forEach(row => {
-    row.onclick = () => openNote(row.dataset.path);
+    row.onclick = () => openNote(row.dataset.id);
   });
 }
 
@@ -220,31 +209,26 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-async function openNote(path) {
-  currentPath = path;
+async function openNote(id) {
+  currentId = id;
   renderList();
   let note;
   try {
-    note = await api(`/notes/detail?path=${encodeURIComponent(path)}`);
+    note = await api(`/notes/detail?note_id=${encodeURIComponent(id)}`);
   } catch (error) {
     if (error.message === "unauthorized") return;
     alert(error.message);
     return;
   }
-  document.getElementById("editorTitle").textContent = note.metadata.title || path;
-  const metadataKeys = ["title", "department", "owner", "status", "version", "access_level", "effective_date"];
-  const extraKeys = Object.keys(note.metadata).filter(key => !metadataKeys.includes(key));
-  const selectOptions = { department: DEPARTMENTS, status: STATUSES, access_level: ACCESS_LEVELS };
-  const fieldHtml = (key) => {
-    const current = note.metadata[key] ?? "";
-    if (selectOptions[key]) {
-      const options = selectOptions[key].includes(current) ? selectOptions[key] : [current, ...selectOptions[key]];
-      return `<label>${key}</label><select data-meta="${key}">${options.map(opt => `<option value="${escapeHtml(opt)}" ${opt === current ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("")}</select>`;
-    }
-    return `<label>${key}</label><input data-meta="${key}" value="${escapeHtml(current)}">`;
-  };
+  document.getElementById("editorTitle").textContent = note.title || id;
   document.getElementById("editor").innerHTML = `
-    <div class="meta-grid">${metadataKeys.concat(extraKeys).map(fieldHtml).join("")}</div>
+    <div class="meta-grid">
+      <label>title</label><input data-field="title" value="${escapeHtml(note.title)}">
+      <label>department</label><select data-field="department">${departmentOptions(note.department)}</select>
+      <label>status</label><select data-field="status">${optionsFor(STATUSES, note.status)}</select>
+      <label>version</label><input data-field="version" value="${escapeHtml(note.version)}">
+      <label>access_level</label><select data-field="access_level">${optionsFor(ACCESS_LEVELS, note.access_level)}</select>
+    </div>
     <label>Nội dung</label>
     <textarea id="contentBox">${escapeHtml(note.content)}</textarea>
     <div class="actions">
@@ -254,55 +238,56 @@ async function openNote(path) {
       <button class="btn danger" id="deleteBtn">Xoá vĩnh viễn</button>
     </div>
   `;
-  document.getElementById("saveBtn").onclick = () => saveNote(path);
-  document.getElementById("approveBtn").onclick = () => setStatus(path, "approve");
-  document.getElementById("rejectBtn").onclick = () => setStatus(path, "reject");
-  document.getElementById("deleteBtn").onclick = () => deleteNote(path);
+  document.getElementById("saveBtn").onclick = () => saveNote(id);
+  document.getElementById("approveBtn").onclick = () => setStatus(id, "approve");
+  document.getElementById("rejectBtn").onclick = () => setStatus(id, "reject");
+  document.getElementById("deleteBtn").onclick = () => deleteNote(id);
 }
 
-function collectMetadata() {
-  const metadata = {};
-  document.querySelectorAll("[data-meta]").forEach(input => {
-    metadata[input.dataset.meta] = input.value;
+function optionsFor(values, selected) {
+  const options = values.includes(selected) ? values : [selected, ...values];
+  return options.map(opt => `<option value="${escapeHtml(opt)}" ${opt === selected ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("");
+}
+
+function collectFields() {
+  const fields = {};
+  document.querySelectorAll("[data-field]").forEach(input => {
+    fields[input.dataset.field] = input.value;
   });
-  return metadata;
+  fields.content = document.getElementById("contentBox").value;
+  return fields;
 }
 
-async function saveNote(path) {
-  const metadata = collectMetadata();
-  const content = document.getElementById("contentBox").value;
+async function saveNote(id) {
+  const body = collectFields();
   try {
-    await api(`/notes?path=${encodeURIComponent(path)}`, {
-      method: "PUT",
-      body: JSON.stringify({ metadata, content }),
-    });
+    await api(`/notes?note_id=${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) });
     await loadNotes();
-    toast("Đã lưu note.");
-    syncToAI();
+    toast("Đã lưu & đồng bộ AI.");
   } catch (error) {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
 
-async function setStatus(path, action) {
+async function setStatus(id, action) {
   try {
-    await api(`/notes/${action}?path=${encodeURIComponent(path)}`, { method: "POST" });
+    await api(`/notes/${action}?note_id=${encodeURIComponent(id)}`, { method: "POST" });
     await loadNotes();
-    openNote(path);
-    syncToAI();
+    openNote(id);
+    toast(action === "approve" ? "Đã duyệt & đồng bộ AI." : "Đã từ chối.");
   } catch (error) {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
 
-async function deleteNote(path) {
-  if (!confirm("Xoá vĩnh viễn note này khỏi Obsidian Vault?")) return;
+async function deleteNote(id) {
+  if (!confirm("Xoá vĩnh viễn note này?")) return;
   try {
-    await api(`/notes?path=${encodeURIComponent(path)}`, { method: "DELETE" });
-    currentPath = null;
+    await api(`/notes?note_id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    currentId = null;
     resetEditor();
     await loadNotes();
-    syncToAI();
+    toast("Đã xoá.");
   } catch (error) {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
@@ -318,7 +303,7 @@ function departmentOptions(selected) {
 }
 
 function showNewNoteForm() {
-  currentPath = null;
+  currentId = null;
   renderList();
   document.getElementById("editorTitle").textContent = "Tạo note mới";
   document.getElementById("editor").innerHTML = `
@@ -348,16 +333,15 @@ async function createNote(status) {
       body: JSON.stringify({ title, department, content, status }),
     });
     await loadNotes();
-    toast(status === "approved" ? "Đã tạo & duyệt note." : "Đã tạo note nháp.");
-    syncToAI();
-    openNote(result.path);
+    toast(status === "approved" ? "Đã tạo, duyệt & đồng bộ AI." : "Đã tạo note nháp.");
+    openNote(result.id);
   } catch (error) {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
 
 function showUploadForm() {
-  currentPath = null;
+  currentId = null;
   renderList();
   document.getElementById("editorTitle").textContent = "Upload file";
   document.getElementById("editor").innerHTML = `
@@ -366,8 +350,8 @@ function showUploadForm() {
     <label>Tiêu đề (tuỳ chọn)</label>
     <input id="uploadTitle" placeholder="Để trống sẽ lấy theo tên file">
     <label>File</label>
-    <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx .png .jpg .webp — tối đa 10MB</small></div>
-    <input type="file" id="uploadFileInput" class="hidden" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx,.png,.jpg,.jpeg,.webp">
+    <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small></div>
+    <input type="file" id="uploadFileInput" class="hidden" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
     <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload → tạo draft</button></div>
   `;
   const dropZone = document.getElementById("dropZone");
@@ -401,7 +385,6 @@ function showUploadForm() {
       await loadNotes();
       resetEditor();
       toast("Đã upload, tạo draft chờ duyệt — chọn note trong danh sách để xem/duyệt.");
-      syncToAI();
     } catch (error) {
       if (error.message !== "unauthorized") toast(error.message, true);
     }

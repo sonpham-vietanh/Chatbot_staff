@@ -1,28 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import io
 import json
 from pathlib import Path
 import re
-import shutil
 from typing import Any
-from uuid import uuid4
 
 import frontmatter
 
+from app.services.admin_service import AdminService
 
-ALLOWED_EXTENSIONS = {".md", ".txt", ".csv", ".json", ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp"}
+ALLOWED_EXTENSIONS = {".md", ".txt", ".csv", ".json", ".pdf", ".docx"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class KnowledgeIngestService:
-    """Ghi dữ liệu do HR upload thành draft note trong Obsidian Vault."""
+    """Trích nội dung văn bản từ file HR/admin upload, tạo thành note draft trong Supabase."""
 
-    def __init__(self, vault_path: Path):
-        self.vault_path = vault_path.resolve()
-        self.upload_path = self.vault_path / ".staff_uploads"
-        self.upload_path.mkdir(parents=True, exist_ok=True)
+    def __init__(self, admin_service: AdminService):
+        self.admin_service = admin_service
 
     def ingest(self, filename: str, content: bytes, department: str | None, title: str | None = None) -> dict[str, Any]:
         safe_name = self._safe_filename(filename)
@@ -32,40 +28,23 @@ class KnowledgeIngestService:
         if len(content) > MAX_UPLOAD_BYTES:
             raise ValueError("File vượt quá giới hạn 10 MB")
 
-        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(safe_name).stem).strip("_") or "uploaded_knowledge"
-        identifier = uuid4().hex[:8]
         note_title = title.strip() if title and title.strip() else Path(safe_name).stem
-        note_path = self.vault_path / f"[DRAFT] {slug}_{identifier}.md"
-        extracted_text = self._extract_text(safe_name, content)
-        attachment_path: Path | None = None
+        extracted_text = self._extract_text(safe_name, content).strip()
+        body = extracted_text or f"File gốc: `{safe_name}`. Chờ HR bổ sung nội dung có thể tìm kiếm."
 
-        if extension in {".png", ".jpg", ".jpeg", ".webp"}:
-            attachment_path = self.upload_path / f"{identifier}_{safe_name}"
-            attachment_path.write_bytes(content)
-            body = f"![[.staff_uploads/{attachment_path.name}]]\n\nChờ HR bổ sung mô tả hoặc OCR nội dung hình ảnh."
-        else:
-            body = extracted_text.strip() or f"File gốc: `{safe_name}`. Chờ HR bổ sung nội dung có thể tìm kiếm."
-
-        metadata = {
-            "title": f"[CẦN DUYỆT] {note_title}",
-            "department": department or "Unassigned",
-            "owner": "hr@vietanh.edu.vn",
-            "status": "draft",
-            "created_by": "HR_Upload",
-            "created_at": timestamp,
-            "version": "0.1",
-            "access_level": "staff",
-            "source_file": safe_name,
-        }
-        note_path.write_text(self._render_note(metadata, body), encoding="utf-8")
+        note = self.admin_service.create_note(
+            title=note_title,
+            department=department or "Unassigned",
+            content=body,
+            status="draft",
+            created_by="HR_Upload",
+        )
         return {
-            "note_path": str(note_path),
+            "note_id": note["id"],
             "status": "draft",
-            "title": metadata["title"],
+            "title": note["title"],
             "source_file": safe_name,
-            "attachment_path": str(attachment_path) if attachment_path else None,
-            "message": "Đã đưa dữ liệu vào Obsidian dưới dạng draft. HR cần duyệt status thành approved trước khi chatbot sử dụng.",
+            "message": "Đã tạo note draft từ file upload. HR cần duyệt trong /admin trước khi chatbot sử dụng.",
         }
 
     @staticmethod
@@ -102,11 +81,3 @@ class KnowledgeIngestService:
             document = Document(io.BytesIO(content))
             return "\n".join(paragraph.text for paragraph in document.paragraphs)
         return ""
-
-    @staticmethod
-    def _render_note(metadata: dict[str, Any], body: str) -> str:
-        lines = ["---"]
-        for key, value in metadata.items():
-            lines.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
-        lines.extend(["---", "", body, ""])
-        return "\n".join(lines)

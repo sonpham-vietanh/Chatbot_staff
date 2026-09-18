@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   Link2,
   Menu,
-  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -30,8 +29,6 @@ function App() {
   const [department, setDepartment] = useState('')
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [reindexing, setReindexing] = useState(false)
-  const [reindexResult, setReindexResult] = useState(null)
   const [debugQuery, setDebugQuery] = useState('')
   const [debugRows, setDebugRows] = useState([])
   const [debugging, setDebugging] = useState(false)
@@ -90,21 +87,6 @@ function App() {
     }
   }
 
-  async function reindex() {
-    setReindexing(true)
-    setReindexResult(null)
-    try {
-      const response = await fetch('/api/reindex', { method: 'POST' })
-      const data = await response.json()
-      setReindexResult(data)
-      loadHealth()
-    } catch {
-      setReindexResult({ error: true })
-    } finally {
-      setReindexing(false)
-    }
-  }
-
   async function debugSearch(event) {
     event?.preventDefault()
     if (!debugQuery.trim()) return
@@ -141,7 +123,7 @@ function App() {
           <div className="mx-auto max-w-[1150px]">
             <div className="flex flex-col justify-between gap-5 border-b border-[#dce3de] pb-8 md:flex-row md:items-start">
               <div><div className="eyebrow"><span className="eyebrow-line" /> Internal knowledge desk</div><h1 className="display-title mt-4 max-w-[700px]">Ask with context.<br /><em>Act with clarity.</em></h1><p className="mt-4 max-w-[590px] text-sm leading-6 text-[#6e7c80]">Trợ lý nội bộ cho quy định nhân sự, nghỉ phép, tài chính và quy trình chuyên môn của Trường Việt Anh.</p></div>
-              <div className="flex items-center gap-2 rounded-full border border-[#dce3de] bg-white/70 px-3 py-2 text-xs text-[#607175]"><span className={`status-dot ${statusOnline ? 'online' : ''}`} />{statusOnline ? `${health.vault_approved_files || 0}/${health.vault_markdown_files || 0} approved notes` : 'Backend offline'}</div>
+              <div className="flex items-center gap-2 rounded-full border border-[#dce3de] bg-white/70 px-3 py-2 text-xs text-[#607175]"><span className={`status-dot ${statusOnline ? 'online' : ''}`} />{statusOnline ? `${health.approved_notes || 0}/${health.knowledge_notes || 0} approved notes` : 'Backend offline'}</div>
             </div>
 
             <div className="mt-7 grid gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
@@ -155,7 +137,7 @@ function App() {
 
               <aside className="space-y-5">
                 <section className="paper-panel rounded-2xl p-5"><div className="flex items-start justify-between"><div><p className="panel-kicker">Your context</p><h2 className="panel-title mt-1">Phạm vi tìm kiếm</h2></div><ShieldCheck className="text-[#3d8d79]" size={20} /></div><p className="mt-3 text-xs leading-5 text-[#7c898a]">Thu hẹp phạm vi tra cứu theo phòng ban (không bắt buộc).</p><Field label="Phòng ban"><Select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Tất cả phòng ban</option><option>HR</option><option>Finance</option><option>Academic</option><option>Admin</option></Select></Field><div className="mt-4 flex items-center gap-2 border-t border-[#e7ebe6] pt-4 text-[11px] text-[#718081]"><Check size={14} className="text-[#3d8d79]" /> Approved sources only</div></section>
-                <section className="paper-panel rounded-2xl p-5"><div className="flex items-start justify-between"><div><p className="panel-kicker">Vault control</p><h2 className="panel-title mt-1">Knowledge sync</h2></div><Database className="text-[#3d8d79]" size={20} /></div><p className="mt-3 text-xs leading-5 text-[#7c898a]">Đồng bộ các note approved từ Obsidian Vault.</p><button onClick={reindex} disabled={reindexing} className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#123d52] text-xs font-bold text-white transition hover:bg-[#1a5169] disabled:opacity-50"><RefreshCw size={14} className={reindexing ? 'animate-spin' : ''} /> {reindexing ? 'Indexing...' : 'Reindex Vault'}</button>{reindexResult && <div className="mt-3 rounded-lg bg-[#edf6ef] p-3 text-[11px] leading-5 text-[#36725e]">{reindexResult.error ? 'Không thể kết nối backend.' : <><strong>{reindexResult.indexed_files} files</strong> · {reindexResult.indexed_chunks} chunks · {reindexResult.graph_edges} links</>}</div>}</section>
+                <section className="paper-panel rounded-2xl p-5"><div className="flex items-start justify-between"><div><p className="panel-kicker">Vault control</p><h2 className="panel-title mt-1">Knowledge sync</h2></div><Database className="text-[#3d8d79]" size={20} /></div><p className="mt-3 text-xs leading-5 text-[#7c898a]">Dữ liệu lưu trên Supabase, đồng bộ tự động ngay khi HR/admin duyệt trong <a href="/admin" className="underline">/admin</a> — không cần reindex thủ công.</p></section>
                 <section className="paper-panel rounded-2xl p-5"><div className="flex items-start justify-between"><div><p className="panel-kicker">Developer view</p><h2 className="panel-title mt-1">Debug retrieval</h2></div><Search className="text-[#3d8d79]" size={19} /></div><form onSubmit={debugSearch} className="mt-4 flex gap-2"><input value={debugQuery} onChange={(event) => setDebugQuery(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-[#d8dfda] bg-white px-3 py-2 text-xs outline-none focus:border-[#3c8b79]" placeholder="nghỉ phép" /><button className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#e8f4ed] text-[#26725f]" aria-label="Tìm chunks"><FileSearch size={15} /></button></form>{debugging && <p className="mt-3 text-[11px] text-[#899697]">Đang tìm chunks...</p>}{debugRows.length > 0 && <div className="mt-3 space-y-2">{debugRows.slice(0, 3).map((row) => <div key={row.id} className="rounded-lg border border-[#e5eae4] bg-[#fcfbf7] p-2.5"><div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[#26725f]"><span className="truncate">{row.metadata.source_file || row.metadata.source}</span><span>{Number(row.score).toFixed(2)}</span></div><p className="mt-1 truncate text-[10px] text-[#7d8a8a]">{row.metadata.heading}</p></div>)}</div>}</section>
               </aside>
             </div>

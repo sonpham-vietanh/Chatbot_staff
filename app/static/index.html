@@ -111,7 +111,7 @@
       <header class="topbar"><div><p class="eyebrow">Internal knowledge desk</p><h1>Hỏi đúng nơi.<br>Đáp có nguồn.</h1><p class="intro">Trợ lý nội bộ cho quy định nhân sự, nghỉ phép, tài chính và quy trình chuyên môn của Trường Việt Anh.</p></div><div class="status"><i></i><span id="statusText">Đang kiểm tra Vault...</span></div></header>
       <section class="workspace">
         <section class="chat-panel">
-          <div class="panel-head"><strong>Cuộc trò chuyện</strong><span id="accessBadge">STAFF ACCESS</span></div>
+          <div class="panel-head"><strong>Cuộc trò chuyện</strong></div>
           <div class="messages" id="messages">
             <div class="welcome" id="welcome"><h2>Chào bạn, cần tra cứu gì?</h2><p>Tôi chỉ trả lời từ những ghi chú Obsidian đã được phê duyệt và luôn để lại nguồn tham chiếu.</p><div class="suggestions"><button class="suggestion">Tôi cần xin nghỉ phép trước bao lâu?</button><button class="suggestion">Quy trình công tác phí thế nào?</button><button class="suggestion">Liên hệ phòng Nhân sự ở đâu?</button></div></div>
           </div>
@@ -120,8 +120,7 @@
         <aside class="tool-panel">
           <h3>Phạm vi truy cập</h3><p>Context được lọc trước khi đưa vào pipeline RAG.</p>
           <label for="department">Phòng ban</label><select id="department"><option value="">Tất cả phòng ban</option><option>HR</option><option>Finance</option><option>Academic</option><option>Admin</option></select>
-          <label for="access">Quyền người dùng</label><select id="access"><option value="staff">Staff</option><option value="manager">Manager</option><option value="admin">Admin</option></select>
-          <div class="divider"></div><h3>Vault control</h3><p>Đồng bộ các note approved từ thư mục Obsidian hiện tại.</p><button class="action" id="reindex">Reindex Vault</button><div class="tool-result" id="reindexResult">Chưa chạy đồng bộ trong phiên này.</div>
+          <div class="divider"></div><p>Thêm/duyệt dữ liệu qua trang <a href="/admin">/admin</a>. Dữ liệu lưu trên Supabase, đồng bộ ngay khi duyệt — không cần reindex thủ công.</p>
           <div class="divider"></div><label for="debugQuery">Debug retrieval</label><input class="debug-input" id="debugQuery" placeholder="Ví dụ: nghỉ phép"><button class="action" id="debugSearch">Xem chunks</button><div class="tool-result" id="debugResult"></div>
         </aside>
       </section>
@@ -131,7 +130,6 @@
     const $ = (selector) => document.querySelector(selector);
     const messages = $('#messages');
     const question = $('#question');
-    const access = $('#access');
     const department = $('#department');
 
     function addMessage(text, type, citations = []) {
@@ -156,7 +154,7 @@
       addMessage(loading, 'assistant');
       const pending = messages.lastElementChild;
       try {
-        const response = await fetch('/api/chat-staff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ question: text, user_department: department.value || null, user_access_level: access.value }) });
+        const response = await fetch('/api/chat-staff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ question: text, user_department: department.value || null }) });
         const data = await response.json();
         pending.remove();
         addMessage(data.answer, 'assistant', data.citations || []);
@@ -168,16 +166,10 @@
 
     $('#chatForm').addEventListener('submit', (event) => { event.preventDefault(); sendChat(); });
     document.querySelectorAll('.suggestion').forEach(button => button.addEventListener('click', () => sendChat(button.textContent)));
-    access.addEventListener('change', () => { $('#accessBadge').textContent = `${access.value.toUpperCase()} ACCESS`; });
-    $('#reindex').addEventListener('click', async () => {
-      const result = $('#reindexResult'); result.textContent = 'Đang index...';
-      try { const data = await (await fetch('/api/reindex', {method: 'POST'})).json(); result.innerHTML = `<strong>${data.indexed_files} files</strong> · ${data.indexed_chunks} chunks · ${data.graph_edges} links`; }
-      catch { result.textContent = 'Không thể reindex. Kiểm tra backend.'; }
-    });
     $('#debugSearch').addEventListener('click', async () => {
       const q = $('#debugQuery').value.trim(); if (!q) return;
       const result = $('#debugResult'); result.textContent = 'Đang tìm...';
-      try { const rows = await (await fetch(`/api/debug/search?q=${encodeURIComponent(q)}&user_access_level=${access.value}`)).json(); result.innerHTML = rows.length ? rows.slice(0, 4).map(row => `<span class="source-chip"><strong>${row.metadata.source_file || row.metadata.source}</strong><br>score ${Number(row.score).toFixed(3)} · ${row.metadata.heading}</span>`).join('') : 'Không tìm thấy chunks.'; }
+      try { const rows = await (await fetch(`/api/debug/search?q=${encodeURIComponent(q)}`)).json(); result.innerHTML = rows.length ? rows.slice(0, 4).map(row => `<span class="source-chip"><strong>${row.metadata.source_file || row.metadata.source}</strong><br>score ${Number(row.score).toFixed(3)} · ${row.metadata.heading}</span>`).join('') : 'Không tìm thấy chunks.'; }
       catch { result.textContent = 'Không thể debug retrieval.'; }
     });
     async function loadHealth() { try { const data = await (await fetch('/api/health')).json(); $('#statusText').textContent = `${data.vault_markdown_files} Markdown trong Vault`; } catch { $('#statusText').textContent = 'Backend chưa sẵn sàng'; } }

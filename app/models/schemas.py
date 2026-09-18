@@ -11,10 +11,7 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     user_department: str | None = None
-    user_access_level: str = "staff"
-    version: str | None = None
     department: str | None = None
-    access_level: str | None = None
     history: list[ChatTurn] = Field(default_factory=list, max_length=12)
 
 
@@ -28,8 +25,6 @@ class ChatResponse(BaseModel):
     answer: str
     grounded: bool
     citations: list[Citation] = []
-    draft_created: bool = False
-    draft_path: str | None = None
 
 
 class SearchResult(BaseModel):
@@ -39,15 +34,13 @@ class SearchResult(BaseModel):
     metadata: dict[str, Any]
 
 
-class ReindexResponse(BaseModel):
-    indexed_files: int
-    indexed_chunks: int
-    graph_edges: int
-
-
 class NoteUpdateRequest(BaseModel):
-    metadata: dict[str, Any]
-    content: str
+    title: str = Field(min_length=1, max_length=200)
+    department: str
+    status: str
+    version: str
+    access_level: str
+    content: str = Field(min_length=1)
 
 
 class NoteCreateRequest(BaseModel):
