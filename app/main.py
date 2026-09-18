@@ -5,9 +5,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import router
+from app.api.routes import get_rag_service, router
 from app.config import get_settings
-from app.rag.pipeline import AdvancedRAGPipeline
 from app.services.vault_watcher import VaultWatcher
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -22,7 +21,10 @@ async def lifespan(app: FastAPI):
     settings.graph_path.parent.mkdir(parents=True, exist_ok=True)
     watcher = None
     if settings.vault_watcher_enabled:
-        pipeline = AdvancedRAGPipeline(settings)
+        # Dùng chung singleton với API requests (get_rag_service) thay vì tự tạo pipeline
+        # riêng — 2 pipeline riêng biệt nghĩa là 2 kết nối ChromaDB mở song song vào cùng
+        # 1 file SQLite, dễ gây lock/mất dữ liệu index.
+        pipeline = get_rag_service()
         watcher = VaultWatcher(
             settings.obsidian_vault_path,
             pipeline.reindex,

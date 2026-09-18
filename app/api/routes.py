@@ -1,3 +1,4 @@
+from functools import lru_cache
 import secrets
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
@@ -12,8 +13,12 @@ from app.services.knowledge_ingest import KnowledgeIngestService
 router = APIRouter(prefix="/api")
 
 
-def get_rag_service(settings: Settings = Depends(get_settings)) -> RAGService:
-    return RAGService(settings)
+@lru_cache
+def get_rag_service() -> RAGService:
+    """Singleton dùng chung cho mọi request. RAGService/VectorStore mở 1 kết nối ChromaDB
+    (SQLite) khi khởi tạo — nếu tạo mới mỗi request, hàng nghìn kết nối chồng lên nhau vào
+    cùng 1 file SQLite sẽ gây lock/mất dữ liệu index một cách ngẫu nhiên."""
+    return RAGService(get_settings())
 
 
 def get_admin_service(settings: Settings = Depends(get_settings)) -> AdminService:
