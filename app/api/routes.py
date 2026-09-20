@@ -4,8 +4,21 @@ import secrets
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 
 from app.config import Settings, get_settings
-from app.models.schemas import ChatRequest, ChatResponse, NoteCreateRequest, NoteUpdateRequest, SearchResult
+from app.models.schemas import (
+    AuthResponse,
+    ChatRequest,
+    ChatResponse,
+    LoginRequest,
+    NoteCreateRequest,
+    NoteUpdateRequest,
+    SearchResult,
+    SignupRequest,
+    ThreadMessage,
+    ThreadSummary,
+)
 from app.services.admin_service import AdminService, NoteNotFoundError
+from app.services.auth_service import AuthError, AuthService
+from app.services.chat_history_service import ChatHistoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.rag_service import RAGService
 
@@ -22,6 +35,14 @@ def get_admin_service(rag: RAGService = Depends(get_rag_service)) -> AdminServic
     return rag.admin
 
 
+def get_auth_service(rag: RAGService = Depends(get_rag_service)) -> AuthService:
+    return rag.auth
+
+
+def get_chat_history_service(rag: RAGService = Depends(get_rag_service)) -> ChatHistoryService:
+    return rag.chat_history
+
+
 def require_admin(
     settings: Settings = Depends(get_settings),
     x_admin_token: str | None = Header(default=None),
@@ -30,6 +51,19 @@ def require_admin(
         raise HTTPException(status_code=503, detail="ADMIN_TOKEN chưa được cấu hình trong .env")
     if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
         raise HTTPException(status_code=401, detail="Admin token không hợp lệ")
+
+
+def require_user(
+    authorization: str | None = Header(default=None),
+    auth: AuthService = Depends(get_auth_service),
+) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Cần đăng nhập để dùng trợ lý")
+    token = authorization.split(" ", 1)[1]
+    try:
+        return auth.get_user(token)
+    except AuthError as error:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại") from error
 
 
 @router.get("/health")
@@ -55,8 +89,80 @@ def debug_search(
     return rag.search(q, user_department or department)
 
 
+@router.post("/auth/signup", response_model=AuthResponse)
+def signup(body: SignupRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+    try:
+        result = auth.signup(body.email, body.password, body.display_name)
+    except AuthError as error:
+        raise HTTPException(status_code=400, detail=error.detail) from error
+    if not result.get("access_token"):
+        raise HTTPException(
+            status_code=400,
+            detail="Tài khoản đã được tạo nhưng cần xác nhận email. Liên hệ admin để bật đăng nhập ngay không cần xác nhận email.",
+        )
+    return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
+
+
+@router.post("/auth/login", response_model=AuthResponse)
+def login(body: LoginRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+    try:
+        result = auth.login(body.email, body.password)
+    except AuthError as error:
+        raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng") from error
+    return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
+
+
+@router.get("/auth/me")
+def me(user: dict = Depends(require_user)) -> dict:
+    return {
+        "id": user["id"],
+        "email": user.get("email"),
+        "display_name": (user.get("user_metadata") or {}).get("display_name"),
+    }
+
+
+@router.get("/chat/threads", response_model=list[ThreadSummary])
+def list_threads(
+    user: dict = Depends(require_user),
+    history: ChatHistoryService = Depends(get_chat_history_service),
+) -> list[dict[str, object]]:
+    return history.list_threads(user["id"])
+
+
+@router.get("/chat/threads/{thread_id}/messages", response_model=list[ThreadMessage])
+def thread_messages(
+    thread_id: str,
+    user: dict = Depends(require_user),
+    history: ChatHistoryService = Depends(get_chat_history_service),
+) -> list[dict[str, object]]:
+    return history.list_messages(thread_id, user["id"])
+
+
+@router.delete("/chat/threads/{thread_id}")
+def delete_thread(
+    thread_id: str,
+    user: dict = Depends(require_user),
+    history: ChatHistoryService = Depends(get_chat_history_service),
+) -> dict[str, str]:
+    history.delete_thread(thread_id, user["id"])
+    return {"status": "deleted"}
+
+
 @router.post("/chat-staff", response_model=ChatResponse)
-def chat_staff(request: ChatRequest, rag: RAGService = Depends(get_rag_service)) -> ChatResponse:
+def chat_staff(
+    request: ChatRequest,
+    user: dict = Depends(require_user),
+    rag: RAGService = Depends(get_rag_service),
+    history: ChatHistoryService = Depends(get_chat_history_service),
+) -> ChatResponse:
+    thread_id = request.thread_id
+    try:
+        if not thread_id:
+            title = request.question.strip()[:60]
+            thread_id = history.create_thread(user["id"], title)["id"]
+        history.add_message(thread_id, "user", request.question)
+    except Exception:
+        pass  # lưu lịch sử là best-effort, không được chặn câu trả lời cho user
     try:
         result = rag.chat(
             request.question,
@@ -72,6 +178,8 @@ def chat_staff(request: ChatRequest, rag: RAGService = Depends(get_rag_service))
             ) from error
         raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
     try:
+        if thread_id:
+            history.add_message(thread_id, "assistant", result["answer"])
         rag.supabase.insert("chat_logs", [{
             "question": request.question,
             "answer": result["answer"],
@@ -80,7 +188,7 @@ def chat_staff(request: ChatRequest, rag: RAGService = Depends(get_rag_service))
         }], returning=False)
     except Exception:
         pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
-    return ChatResponse(**result)
+    return ChatResponse(**result, thread_id=thread_id)
 
 
 @router.get("/admin/notes", dependencies=[Depends(require_admin)])
