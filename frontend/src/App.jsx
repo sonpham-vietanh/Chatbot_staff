@@ -409,7 +409,7 @@ function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error }) 
           {mode === 'signup' && (
             <input required value={form.display_name} onChange={(event) => setForm((current) => ({ ...current, display_name: event.target.value }))} placeholder="Họ tên" className="auth-input" />
           )}
-          <input required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email công ty" className="auth-input" />
+          <input required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email công ty (@truongvietanh.com)" className="auth-input" />
           <input required type="password" minLength={6} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Mật khẩu (tối thiểu 6 ký tự)" className="auth-input" />
           {error && <p className="text-xs leading-5 text-[#c0503a]">{error}</p>}
           <button disabled={loading} className="auth-submit">{loading ? 'Đang xử lý...' : mode === 'login' ? 'Đăng nhập' : 'Đăng ký'}</button>

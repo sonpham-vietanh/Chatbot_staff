@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     openrouter_embedding_model: str = "openai/text-embedding-3-small"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     admin_token: str | None = None
+    allowed_email_domains: str | None = None
+    """Danh sách domain email công ty được phép đăng ký, cách nhau bởi dấu phẩy
+    (vd 'truongvietanh.com,mamnon-vietanh.com'). Để trống = không giới hạn."""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

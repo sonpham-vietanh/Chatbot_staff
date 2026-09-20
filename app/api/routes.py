@@ -90,8 +90,25 @@ def debug_search(
     return rag.search(q, user_department or department)
 
 
+def _check_email_domain(email: str, settings: Settings) -> None:
+    if not settings.allowed_email_domains:
+        return
+    allowed = [d.strip().casefold().lstrip("@") for d in settings.allowed_email_domains.split(",") if d.strip()]
+    if not allowed:
+        return
+    domain = email.strip().casefold().rsplit("@", 1)[-1]
+    if domain not in allowed:
+        domains_text = ", ".join(f"@{d}" for d in allowed)
+        raise HTTPException(status_code=400, detail=f"Chỉ email công ty ({domains_text}) mới được đăng ký tài khoản.")
+
+
 @router.post("/auth/signup", response_model=AuthResponse)
-def signup(body: SignupRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+def signup(
+    body: SignupRequest,
+    auth: AuthService = Depends(get_auth_service),
+    settings: Settings = Depends(get_settings),
+) -> AuthResponse:
+    _check_email_domain(body.email, settings)
     try:
         result = auth.signup(body.email, body.password, body.display_name)
     except AuthError as error:
