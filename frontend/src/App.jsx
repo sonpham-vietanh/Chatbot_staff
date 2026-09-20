@@ -23,6 +23,7 @@ const suggestions = [
 ]
 
 const TOKEN_KEY = 'va_token'
+const REFRESH_KEY = 'va_refresh_token'
 
 async function readApiResponse(response) {
   const raw = await response.text()
@@ -55,6 +56,8 @@ function App() {
   const [debugging, setDebugging] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
   const scrollAnchorRef = useRef(null)
+  const tokenRef = useRef(token)
+  const refreshingRef = useRef(null)
 
   useEffect(() => {
     loadHealth()
@@ -71,10 +74,10 @@ function App() {
     }
     ;(async () => {
       try {
-        const response = await fetch('/api/auth/me', { headers: authHeaders(token) })
+        const response = await authFetch('/api/auth/me')
         if (!response.ok) throw new Error()
         setUser(await response.json())
-        loadThreads(token)
+        loadThreads()
       } catch {
         clearSession()
       } finally {
@@ -84,8 +87,53 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
 
-  function authHeaders(overrideToken = token) {
-    return overrideToken ? { Authorization: `Bearer ${overrideToken}` } : {}
+  function persistSession(accessToken, refreshToken) {
+    localStorage.setItem(TOKEN_KEY, accessToken)
+    localStorage.setItem(REFRESH_KEY, refreshToken)
+    tokenRef.current = accessToken
+    setToken(accessToken)
+  }
+
+  /** Tự làm mới phiên đăng nhập khi access token hết hạn (~1h), để nhân viên không
+   * bị văng ra ngoài giữa chừng — chỉ đăng xuất khi refresh token cũng hết hạn/không hợp lệ. */
+  async function refreshSession() {
+    if (refreshingRef.current) return refreshingRef.current
+    const storedRefreshToken = localStorage.getItem(REFRESH_KEY)
+    if (!storedRefreshToken) return false
+    refreshingRef.current = (async () => {
+      try {
+        const response = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: storedRefreshToken }),
+        })
+        if (!response.ok) return false
+        const data = await response.json()
+        persistSession(data.access_token, data.refresh_token)
+        return true
+      } catch {
+        return false
+      }
+    })()
+    const ok = await refreshingRef.current
+    refreshingRef.current = null
+    return ok
+  }
+
+  /** fetch có Authorization header, tự refresh + retry 1 lần nếu access token đã hết hạn (401). */
+  async function authFetch(url, options = {}) {
+    const withAuth = (activeToken) => ({
+      ...options,
+      headers: { ...(options.headers || {}), ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}) },
+    })
+    const response = await fetch(url, withAuth(tokenRef.current))
+    if (response.status !== 401) return response
+    const refreshed = await refreshSession()
+    if (!refreshed) {
+      clearSession()
+      return response
+    }
+    return fetch(url, withAuth(tokenRef.current))
   }
 
   async function loadHealth() {
@@ -97,9 +145,9 @@ function App() {
     }
   }
 
-  async function loadThreads(activeToken = token) {
+  async function loadThreads() {
     try {
-      const response = await fetch('/api/chat/threads', { headers: authHeaders(activeToken) })
+      const response = await authFetch('/api/chat/threads')
       if (response.ok) setThreads(await response.json())
     } catch {
       // best-effort
@@ -110,7 +158,7 @@ function App() {
     setActiveThreadId(id)
     setMobileNav(false)
     try {
-      const response = await fetch(`/api/chat/threads/${id}/messages`, { headers: authHeaders() })
+      const response = await authFetch(`/api/chat/threads/${id}/messages`)
       const rows = response.ok ? await response.json() : []
       setMessages(rows.map((row) => ({ role: row.role, text: row.content })))
     } catch {
@@ -129,7 +177,7 @@ function App() {
     setThreads((current) => current.filter((thread) => thread.id !== id))
     if (activeThreadId === id) startNewThread()
     try {
-      await fetch(`/api/chat/threads/${id}`, { method: 'DELETE', headers: authHeaders() })
+      await authFetch(`/api/chat/threads/${id}`, { method: 'DELETE' })
     } catch {
       // best-effort
     }
@@ -137,6 +185,8 @@ function App() {
 
   function clearSession() {
     localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(REFRESH_KEY)
+    tokenRef.current = null
     setToken(null)
     setUser(null)
     setThreads([])
@@ -160,8 +210,7 @@ function App() {
       })
       const data = await readApiResponse(response)
       if (!response.ok) throw new Error(data.detail || 'Không thể xác thực')
-      localStorage.setItem(TOKEN_KEY, data.access_token)
-      setToken(data.access_token)
+      persistSession(data.access_token, data.refresh_token)
     } catch (error) {
       setAuthError(error.message)
     } finally {
@@ -179,9 +228,9 @@ function App() {
     setMessages((current) => [...current, { role: 'user', text }])
     setLoading(true)
     try {
-      const response = await fetch('/api/chat-staff', {
+      const response = await authFetch('/api/chat-staff', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: text,
           user_department: department || null,

@@ -407,7 +407,8 @@ function showUploadForm() {
     <label>File</label>
     <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small></div>
     <input type="file" id="uploadFileInput" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
-    <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload → tạo draft</button></div>
+    <p style="margin:14px 0 0;font-size:11.5px;color:var(--muted);line-height:1.5">File sẽ được duyệt tự động và chatbot dùng được ngay — kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
+    <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload & duyệt tự động</button></div>
   `;
   const dropZone = document.getElementById("dropZone");
   const fileInput = document.getElementById("uploadFileInput");
@@ -436,10 +437,10 @@ function showUploadForm() {
     if (title) form.append("title", title);
     try {
       await apiUpload("/upload", form);
-      document.getElementById("statusFilter").value = "draft";
+      document.getElementById("statusFilter").value = "approved";
       await loadNotes();
       resetEditor();
-      toast("Đã upload, tạo draft chờ duyệt — chọn note trong danh sách để xem/duyệt.");
+      toast("Đã upload & duyệt tự động — chatbot dùng được ngay. Kiểm tra lại trong danh sách nếu cần.");
     } catch (error) {
       if (error.message !== "unauthorized") toast(error.message, true);
     }

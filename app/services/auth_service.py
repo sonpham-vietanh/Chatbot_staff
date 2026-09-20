@@ -37,6 +37,15 @@ class AuthService:
         )
         return self._parse(response)
 
+    def refresh(self, refresh_token: str) -> dict:
+        response = httpx.post(
+            f"{self.base_url}/auth/v1/token?grant_type=refresh_token",
+            headers=self._headers(),
+            json={"refresh_token": refresh_token},
+            timeout=30,
+        )
+        return self._parse(response)
+
     def get_user(self, access_token: str) -> dict:
         response = httpx.get(
             f"{self.base_url}/auth/v1/user",

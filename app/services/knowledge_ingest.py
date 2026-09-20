@@ -36,15 +36,15 @@ class KnowledgeIngestService:
             title=note_title,
             department=department or "Unassigned",
             content=body,
-            status="draft",
+            status="approved",
             created_by="HR_Upload",
         )
         return {
             "note_id": note["id"],
-            "status": "draft",
+            "status": "approved",
             "title": note["title"],
             "source_file": safe_name,
-            "message": "Đã tạo note draft từ file upload. HR cần duyệt trong /admin trước khi chatbot sử dụng.",
+            "message": "Đã tạo note và duyệt tự động — chatbot có thể trả lời từ nội dung này ngay.",
         }
 
     @staticmethod
@@ -79,5 +79,25 @@ class KnowledgeIngestService:
             from docx import Document
 
             document = Document(io.BytesIO(content))
-            return "\n".join(paragraph.text for paragraph in document.paragraphs)
+            lines = []
+            for paragraph in document.paragraphs:
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+                level = KnowledgeIngestService._docx_heading_level(paragraph.style.name if paragraph.style else "")
+                lines.append(f"{'#' * level} {text}" if level else text)
+            return "\n\n".join(lines)
         return ""
+
+    @staticmethod
+    def _docx_heading_level(style_name: str) -> int:
+        """Word lưu cấu trúc mục/chương qua style ('Heading 1'..'Heading 9', 'Title') —
+        chuyển thành Markdown '#'..'####' để chunk_content() cắt đúng theo mục mà không
+        cần sửa tay lại nội dung sau khi upload."""
+        name = (style_name or "").casefold()
+        if name == "title":
+            return 1
+        match = re.match(r"heading (\d+)", name)
+        if match:
+            return min(int(match.group(1)) + 1, 4)
+        return 0

@@ -11,6 +11,7 @@ from app.models.schemas import (
     LoginRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
+    RefreshRequest,
     SearchResult,
     SignupRequest,
     ThreadMessage,
@@ -109,6 +110,15 @@ def login(body: LoginRequest, auth: AuthService = Depends(get_auth_service)) -> 
         result = auth.login(body.email, body.password)
     except AuthError as error:
         raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng") from error
+    return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
+
+
+@router.post("/auth/refresh", response_model=AuthResponse)
+def refresh_token(body: RefreshRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+    try:
+        result = auth.refresh(body.refresh_token)
+    except AuthError as error:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại") from error
     return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
 
 
