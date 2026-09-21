@@ -63,6 +63,23 @@ class ThreadMessage(BaseModel):
     created_at: str
 
 
+class TopSource(BaseModel):
+    source: str
+    count: int
+
+
+class TopQuestion(BaseModel):
+    question: str
+    count: int
+
+
+class AnalyticsSummary(BaseModel):
+    scanned_logs: int
+    grounded_count: int
+    top_sources: list[TopSource]
+    top_questions: list[TopQuestion]
+
+
 class SearchResult(BaseModel):
     id: str
     text: str

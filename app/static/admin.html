@@ -87,6 +87,19 @@
   .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--line); }
   .placeholder { padding: 90px 24px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
 
+  /* ---- stats ---- */
+  .stats-summary { display: flex; gap: 12px; padding: 22px 22px 0; }
+  .stat-card { flex: 1; background: rgba(18,109,106,.05); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .stat-card .value { font-size: 22px; font-weight: 800; color: var(--teal-dark); font-family: Georgia, serif; }
+  .stat-card .label { margin-top: 2px; font-size: 11px; color: var(--muted); }
+  .stats-section { padding: 22px; }
+  .stats-section h3 { margin: 0 0 12px; font-size: 13px; font-weight: 700; }
+  .stat-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .rank { flex-shrink: 0; width: 20px; color: var(--muted); font-weight: 700; }
+  .stat-row .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat-row .count { flex-shrink: 0; background: var(--teal); color: #fff; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+
   /* ---- toast ---- */
   #toast { position: fixed; top: 18px; right: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
   .toast-item { background: var(--teal-dark); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 12.5px; box-shadow: var(--shadow); max-width: 340px; animation: toast-in .2s ease both; }
@@ -137,6 +150,7 @@
       <div class="panel-head-actions">
         <button class="btn small" id="newNoteBtn">+ Tạo note mới</button>
         <button class="btn small secondary" id="uploadBtn">Upload file</button>
+        <button class="btn small secondary" id="statsBtn">Thống kê</button>
       </div>
       <div id="list"></div>
     </div>
@@ -447,8 +461,51 @@ function showUploadForm() {
   };
 }
 
+async function showStats() {
+  currentId = null;
+  renderList();
+  document.getElementById("editorTitle").textContent = "Thống kê câu hỏi";
+  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải thống kê...</div>';
+  let data;
+  try {
+    data = await api("/analytics");
+  } catch (error) {
+    if (error.message !== "unauthorized") {
+      document.getElementById("editor").innerHTML = `<div class="placeholder">${escapeHtml(error.message)}</div>`;
+    }
+    return;
+  }
+  const groundedRate = data.scanned_logs ? Math.round((data.grounded_count / data.scanned_logs) * 100) : 0;
+  document.getElementById("editor").innerHTML = `
+    <div class="stats-summary">
+      <div class="stat-card"><div class="value">${data.scanned_logs}</div><div class="label">Lượt hỏi đã ghi nhận</div></div>
+      <div class="stat-card"><div class="value">${groundedRate}%</div><div class="label">Có trích dẫn nguồn</div></div>
+    </div>
+    <div class="stats-section">
+      <h3>Tài liệu được trích dẫn nhiều nhất</h3>
+      ${renderStatRows(data.top_sources, (row) => row.source)}
+    </div>
+    <div class="stats-section" style="padding-top:0">
+      <h3>Câu hỏi giống nhau được hỏi nhiều nhất</h3>
+      ${renderStatRows(data.top_questions, (row) => row.question)}
+    </div>
+  `;
+}
+
+function renderStatRows(rows, getText) {
+  if (!rows || !rows.length) return '<p style="font-size:12.5px;color:var(--muted)">Chưa có dữ liệu.</p>';
+  return rows.map((row, index) => `
+    <div class="stat-row">
+      <span class="rank">${index + 1}</span>
+      <span class="text" title="${escapeHtml(getText(row))}">${escapeHtml(getText(row))}</span>
+      <span class="count">${row.count}</span>
+    </div>
+  `).join("");
+}
+
 document.getElementById("newNoteBtn").onclick = showNewNoteForm;
 document.getElementById("uploadBtn").onclick = showUploadForm;
+document.getElementById("statsBtn").onclick = showStats;
 
 if (token) { showApp(); } else { showLogin(); }
 </script>

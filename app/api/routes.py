@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query
 
 from app.config import Settings, get_settings
 from app.models.schemas import (
+    AnalyticsSummary,
     AuthResponse,
     ChatRequest,
     ChatResponse,
@@ -269,6 +270,11 @@ def admin_reject_note(note_id: str, admin: AdminService = Depends(get_admin_serv
 def admin_delete_note(note_id: str, admin: AdminService = Depends(get_admin_service)) -> dict[str, str]:
     admin.delete_note(note_id)
     return {"status": "deleted"}
+
+
+@router.get("/admin/analytics", response_model=AnalyticsSummary, dependencies=[Depends(require_admin)])
+def admin_analytics(rag: RAGService = Depends(get_rag_service)) -> dict[str, object]:
+    return rag.analytics.summary()
 
 
 @router.post("/admin/notes/create", dependencies=[Depends(require_admin)])
