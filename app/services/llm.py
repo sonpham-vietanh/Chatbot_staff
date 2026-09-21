@@ -5,9 +5,20 @@ import httpx
 from app.rag.prompt_builder import FALLBACK_ANSWER, build_prompt
 
 
+IMAGE_DESCRIBE_PROMPT = (
+    "Mô tả ngắn gọn nội dung hình ảnh này bằng tiếng Việt. Nếu ảnh chứa bảng số liệu, chữ, "
+    "biểu đồ hay văn bản — hãy chép lại chính xác toàn bộ chữ/số đó. Nếu ảnh chỉ mang tính "
+    "minh hoạ/trang trí không có thông tin, trả lời đúng 1 câu: 'Ảnh minh hoạ, không có nội dung văn bản.'"
+)
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
+        ...
+
+    @abstractmethod
+    def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
         ...
 
 
@@ -25,6 +36,9 @@ class MockLLMProvider(LLMProvider):
         )
         excerpt = first["text"].replace("\n", " ").strip()
         return f"Theo tài liệu đã được phê duyệt: {excerpt}\n\n{source}"
+
+    def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
+        return ""
 
 
 class GeminiLLMProvider(LLMProvider):
@@ -49,6 +63,15 @@ class GeminiLLMProvider(LLMProvider):
         )
         answer = (response.text or "").strip()
         return answer or FALLBACK_ANSWER
+
+    def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
+        from google.genai import types
+
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime_type), IMAGE_DESCRIBE_PROMPT],
+        )
+        return (response.text or "").strip()
 
 
 class OpenRouterLLMProvider(LLMProvider):
@@ -83,6 +106,40 @@ class OpenRouterLLMProvider(LLMProvider):
         if isinstance(answer, list):
             answer = "".join(part.get("text", "") for part in answer if isinstance(part, dict))
         return str(answer).strip() or FALLBACK_ANSWER
+
+    def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
+        import base64
+
+        data_uri = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        response = httpx.post(
+            self.url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "http://127.0.0.1:5173",
+                "X-Title": "Viet Anh Staff Assistant",
+            },
+            json={
+                "model": self.model,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": IMAGE_DESCRIBE_PROMPT},
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ],
+                }],
+                "temperature": 0.1,
+                "max_tokens": 500,
+            },
+            timeout=60,
+        )
+        if response.is_error:
+            return ""
+        payload = response.json()
+        answer = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if isinstance(answer, list):
+            answer = "".join(part.get("text", "") for part in answer if isinstance(part, dict))
+        return str(answer).strip()
 
 
 def build_llm_provider(name: str, api_key: str | None = None,

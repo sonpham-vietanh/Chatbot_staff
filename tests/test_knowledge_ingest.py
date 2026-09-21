@@ -51,6 +51,59 @@ def test_ingest_docx_converts_word_headings_to_markdown():
     assert result["status"] == "approved"
 
 
+def test_ingest_docx_extracts_table_content():
+    document = Document()
+    document.add_paragraph("Chính sách học bổng", style="Heading 1")
+    table = document.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "Mức học bổng"
+    table.rows[0].cells[1].text = "Điều kiện"
+    table.rows[1].cells[0].text = "50%"
+    table.rows[1].cells[1].text = "GPA >= 3.5"
+    document.add_paragraph("Áp dụng từ năm 2026.")
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    admin = FakeAdminService()
+    KnowledgeIngestService(admin).ingest("hoc_bong.docx", buffer.getvalue(), "HR")
+
+    content = admin.calls[0]["content"]
+    assert "# Chính sách học bổng" in content
+    assert "Mức học bổng" in content and "Điều kiện" in content
+    assert "50%" in content and "GPA >= 3.5" in content
+    assert "Áp dụng từ năm 2026." in content
+
+
+class FakeLLM:
+    def describe_image(self, image_bytes, mime_type):
+        return "Bảng lương: bậc 1 = 5 triệu, bậc 2 = 7 triệu."
+
+    def answer(self, question, contexts, history=None):
+        raise NotImplementedError
+
+
+def test_ingest_docx_describes_images_via_llm():
+    document = Document()
+    document.add_paragraph("Bảng lương nhân viên", style="Heading 1")
+    document.add_picture(io.BytesIO(_tiny_png()))
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    admin = FakeAdminService()
+    KnowledgeIngestService(admin, FakeLLM()).ingest("bang_luong.docx", buffer.getvalue(), "HR")
+
+    content = admin.calls[0]["content"]
+    assert "Nội dung trích xuất từ hình ảnh" in content
+    assert "bậc 1 = 5 triệu" in content
+
+
+def _tiny_png() -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+
 def test_ingest_rejects_unsupported_file():
     with pytest.raises(ValueError, match="Định dạng chưa được hỗ trợ"):
         KnowledgeIngestService(FakeAdminService()).ingest("secret.exe", b"data", "HR")

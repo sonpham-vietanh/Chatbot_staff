@@ -282,11 +282,11 @@ async def admin_upload_knowledge(
     file: UploadFile = File(...),
     department: str = Form("Unassigned"),
     title: str | None = Form(None),
-    admin: AdminService = Depends(get_admin_service),
+    rag: RAGService = Depends(get_rag_service),
 ) -> dict[str, object]:
     content = await file.read()
     try:
-        return KnowledgeIngestService(admin).ingest(file.filename or "upload", content, department, title)
+        return KnowledgeIngestService(rag.admin, rag.llm).ingest(file.filename or "upload", content, department, title)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
