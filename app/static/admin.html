@@ -458,11 +458,15 @@ function showUploadForm() {
     const title = document.getElementById("uploadTitle").value.trim();
     if (title) form.append("title", title);
     try {
-      await apiUpload("/upload", form);
+      const result = await apiUpload("/upload", form);
       document.getElementById("statusFilter").value = "approved";
       await loadNotes();
       resetEditor();
-      toast("Đã upload & duyệt tự động — chatbot dùng được ngay. Kiểm tra lại trong danh sách nếu cần.");
+      if (result.warning) {
+        toast(result.warning, true);
+      } else {
+        toast("Đã upload & duyệt tự động — chatbot dùng được ngay. Kiểm tra lại trong danh sách nếu cần.");
+      }
     } catch (error) {
       if (error.message !== "unauthorized") toast(error.message, true);
     }

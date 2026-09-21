@@ -38,6 +38,8 @@ class KnowledgeIngestService:
         extracted_text = self._extract_text(safe_name, content).strip()
         body = extracted_text or f"File gốc: `{safe_name}`. Chờ HR bổ sung nội dung có thể tìm kiếm."
 
+        duplicate = self._find_possible_duplicate(note_title)
+
         note = self.admin_service.create_note(
             title=note_title,
             department=department or "Unassigned",
@@ -45,13 +47,33 @@ class KnowledgeIngestService:
             status="approved",
             created_by="HR_Upload",
         )
-        return {
+        result = {
             "note_id": note["id"],
             "status": "approved",
             "title": note["title"],
             "source_file": safe_name,
             "message": "Đã tạo note và duyệt tự động — chatbot có thể trả lời từ nội dung này ngay.",
         }
+        if duplicate:
+            result["warning"] = (
+                f"Tên gần giống note đã có: \"{duplicate['title']}\" (đang {duplicate['status']}). "
+                "Kiểm tra lại tránh dữ liệu trùng/mâu thuẫn — nếu đây là bản cập nhật, nên từ chối "
+                "hoặc xoá note cũ."
+            )
+        return result
+
+    def _find_possible_duplicate(self, title: str) -> dict[str, Any] | None:
+        """So khớp tên đơn giản (không phân biệt hoa/thường, chứa lẫn nhau) với các note đã
+        duyệt — không có embedding similarity ở đây vì chỉ cần cảnh báo nhanh trước khi ghi,
+        không cần chính xác tuyệt đối."""
+        normalized = title.strip().casefold()
+        if not normalized:
+            return None
+        for note in self.admin_service.list_notes("approved"):
+            existing = (note.get("title") or "").strip().casefold()
+            if existing and (existing == normalized or existing in normalized or normalized in existing):
+                return note
+        return None
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

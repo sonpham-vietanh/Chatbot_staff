@@ -7,14 +7,18 @@ from app.services.knowledge_ingest import KnowledgeIngestService
 
 
 class FakeAdminService:
-    def __init__(self):
+    def __init__(self, existing_notes=None):
         self.calls = []
+        self.existing_notes = existing_notes or []
 
     def create_note(self, title, department, content, status, created_by):
         note = {"id": "fake-id", "title": title, "department": department,
                 "content": content, "status": status, "created_by": created_by}
         self.calls.append(note)
         return note
+
+    def list_notes(self, status=None):
+        return self.existing_notes
 
 
 def test_ingest_text_creates_approved_note():
@@ -102,6 +106,35 @@ def _tiny_png() -> bytes:
         b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
         b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
     )
+
+
+def test_ingest_warns_on_similar_existing_title():
+    admin = FakeAdminService(existing_notes=[
+        {"id": "old-1", "title": "Quy định nghỉ phép 2025", "status": "approved"},
+    ])
+    result = KnowledgeIngestService(admin).ingest(
+        "quy_dinh_nghi_phep_2025.txt",
+        "Nội dung mới.".encode("utf-8"),
+        "HR",
+        title="Quy định nghỉ phép 2025",
+    )
+
+    assert "warning" in result
+    assert "Quy định nghỉ phép 2025" in result["warning"]
+
+
+def test_ingest_no_warning_when_title_is_distinct():
+    admin = FakeAdminService(existing_notes=[
+        {"id": "old-1", "title": "Quy định công tác phí", "status": "approved"},
+    ])
+    result = KnowledgeIngestService(admin).ingest(
+        "quy_dinh_nghi_phep.txt",
+        "Nội dung.".encode("utf-8"),
+        "HR",
+        title="Quy định nghỉ phép",
+    )
+
+    assert "warning" not in result
 
 
 def test_ingest_rejects_unsupported_file():
