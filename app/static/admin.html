@@ -461,10 +461,11 @@ function showUploadForm() {
       const result = await apiUpload("/upload", form);
       document.getElementById("statusFilter").value = "approved";
       await loadNotes();
-      resetEditor();
-      if (result.warning) {
-        toast(result.warning, true);
+      if (result.duplicate) {
+        toast(`${result.warning} Đã mở sẵn note nghi trùng để bạn kiểm tra.`, true);
+        await openNote(result.duplicate.note_id);
       } else {
+        resetEditor();
         toast("Đã upload & duyệt tự động — chatbot dùng được ngay. Kiểm tra lại trong danh sách nếu cần.");
       }
     } catch (error) {

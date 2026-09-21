@@ -351,7 +351,7 @@ async def admin_upload_knowledge(
 ) -> dict[str, object]:
     content = await file.read()
     try:
-        return KnowledgeIngestService(rag.admin, rag.llm).ingest(file.filename or "upload", content, department, title)
+        return KnowledgeIngestService(rag.admin, rag.llm, rag.vector_store).ingest(file.filename or "upload", content, department, title)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:

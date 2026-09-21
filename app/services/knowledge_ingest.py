@@ -16,15 +16,20 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_IMAGES_PER_FILE = 15
 """Chặn trần số ảnh gửi qua AI Vision mỗi lần upload — tránh 1 file docx nhiều ảnh
 trang trí làm request treo lâu hoặc phát sinh chi phí AI vượt kiểm soát."""
+DUPLICATE_SCORE_THRESHOLD = 0.85
+"""Ngưỡng cosine similarity (qua chính vector search đang dùng cho chat) để coi 2 note là
+nghi trùng nội dung — cao hơn hẳn MIN_RELEVANCE_SCORE (0.22, chỉ cần 'liên quan' để chat
+dùng làm context) vì ở đây cần gần như trùng nội dung thật, không chỉ cùng chủ đề."""
 
 
 class KnowledgeIngestService:
     """Trích nội dung văn bản (+ mô tả ảnh qua AI Vision nếu có LLM) từ file HR/admin
     upload, tạo thành note trong Supabase."""
 
-    def __init__(self, admin_service: AdminService, llm: LLMProvider | None = None):
+    def __init__(self, admin_service: AdminService, llm: LLMProvider | None = None, vector_store=None):
         self.admin_service = admin_service
         self.llm = llm
+        self.vector_store = vector_store
 
     def ingest(self, filename: str, content: bytes, department: str | None, title: str | None = None) -> dict[str, Any]:
         safe_name = self._safe_filename(filename)
@@ -38,7 +43,7 @@ class KnowledgeIngestService:
         extracted_text = self._extract_text(safe_name, content).strip()
         body = extracted_text or f"File gốc: `{safe_name}`. Chờ HR bổ sung nội dung có thể tìm kiếm."
 
-        duplicate = self._find_possible_duplicate(note_title)
+        duplicate = self._find_semantic_duplicate(note_title, extracted_text or body)
 
         note = self.admin_service.create_note(
             title=note_title,
@@ -55,25 +60,33 @@ class KnowledgeIngestService:
             "message": "Đã tạo note và duyệt tự động — chatbot có thể trả lời từ nội dung này ngay.",
         }
         if duplicate:
+            result["duplicate"] = duplicate
             result["warning"] = (
-                f"Tên gần giống note đã có: \"{duplicate['title']}\" (đang {duplicate['status']}). "
-                "Kiểm tra lại tránh dữ liệu trùng/mâu thuẫn — nếu đây là bản cập nhật, nên từ chối "
-                "hoặc xoá note cũ."
+                f"Nội dung giống {round(duplicate['score'] * 100)}% với note đã có: \"{duplicate['title']}\". "
+                "Kiểm tra tránh dữ liệu trùng/mâu thuẫn — nếu đây là bản cập nhật, nên từ chối hoặc xoá note cũ."
             )
         return result
 
-    def _find_possible_duplicate(self, title: str) -> dict[str, Any] | None:
-        """So khớp tên đơn giản (không phân biệt hoa/thường, chứa lẫn nhau) với các note đã
-        duyệt — không có embedding similarity ở đây vì chỉ cần cảnh báo nhanh trước khi ghi,
-        không cần chính xác tuyệt đối."""
-        normalized = title.strip().casefold()
-        if not normalized:
+    def _find_semantic_duplicate(self, title: str, content: str) -> dict[str, Any] | None:
+        """Dùng chính vector search đang phục vụ chat để tự phát hiện note trùng nội dung —
+        chạy TRƯỚC khi tạo note mới nên chưa có chunk của chính nó trong index, không cần
+        lọc tự-trùng-với-chính-mình. Bắt được cả trường hợp tên khác hẳn nhưng nội dung
+        giống nhau, việc mà so khớp theo tên không làm được."""
+        if not self.vector_store or not content.strip():
             return None
-        for note in self.admin_service.list_notes("approved"):
-            existing = (note.get("title") or "").strip().casefold()
-            if existing and (existing == normalized or existing in normalized or normalized in existing):
-                return note
-        return None
+        query = f"{title}\n{content[:1500]}"
+        try:
+            results = self.vector_store.search(query, top_k=3, filters={})
+        except Exception:
+            return None
+        if not results or results[0]["score"] < DUPLICATE_SCORE_THRESHOLD:
+            return None
+        top = results[0]
+        return {
+            "note_id": top["id"].split(":")[0],
+            "title": top["metadata"].get("title"),
+            "score": round(top["score"], 3),
+        }
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

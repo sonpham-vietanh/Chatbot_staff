@@ -7,9 +7,8 @@ from app.services.knowledge_ingest import KnowledgeIngestService
 
 
 class FakeAdminService:
-    def __init__(self, existing_notes=None):
+    def __init__(self):
         self.calls = []
-        self.existing_notes = existing_notes or []
 
     def create_note(self, title, department, content, status, created_by):
         note = {"id": "fake-id", "title": title, "department": department,
@@ -17,8 +16,13 @@ class FakeAdminService:
         self.calls.append(note)
         return note
 
-    def list_notes(self, status=None):
-        return self.existing_notes
+
+class FakeVectorStore:
+    def __init__(self, results):
+        self.results = results
+
+    def search(self, query, top_k, filters=None):
+        return self.results
 
 
 def test_ingest_text_creates_approved_note():
@@ -108,33 +112,43 @@ def _tiny_png() -> bytes:
     )
 
 
-def test_ingest_warns_on_similar_existing_title():
-    admin = FakeAdminService(existing_notes=[
-        {"id": "old-1", "title": "Quy định nghỉ phép 2025", "status": "approved"},
+def test_ingest_flags_semantic_duplicate_above_threshold():
+    admin = FakeAdminService()
+    vector_store = FakeVectorStore([
+        {"id": "old-1:0", "score": 0.93, "metadata": {"title": "Quy định nghỉ phép 2025"}},
     ])
-    result = KnowledgeIngestService(admin).ingest(
-        "quy_dinh_nghi_phep_2025.txt",
-        "Nội dung mới.".encode("utf-8"),
+    result = KnowledgeIngestService(admin, vector_store=vector_store).ingest(
+        "ban_moi.txt",
+        "Nội dung gần như y hệt bản cũ.".encode("utf-8"),
         "HR",
-        title="Quy định nghỉ phép 2025",
     )
 
+    assert result["duplicate"] == {"note_id": "old-1", "title": "Quy định nghỉ phép 2025", "score": 0.93}
     assert "warning" in result
-    assert "Quy định nghỉ phép 2025" in result["warning"]
 
 
-def test_ingest_no_warning_when_title_is_distinct():
-    admin = FakeAdminService(existing_notes=[
-        {"id": "old-1", "title": "Quy định công tác phí", "status": "approved"},
+def test_ingest_no_duplicate_when_score_below_threshold():
+    admin = FakeAdminService()
+    vector_store = FakeVectorStore([
+        {"id": "old-1:0", "score": 0.4, "metadata": {"title": "Quy định công tác phí"}},
     ])
-    result = KnowledgeIngestService(admin).ingest(
-        "quy_dinh_nghi_phep.txt",
-        "Nội dung.".encode("utf-8"),
+    result = KnowledgeIngestService(admin, vector_store=vector_store).ingest(
+        "quy_dinh_khac.txt",
+        "Nội dung không liên quan.".encode("utf-8"),
         "HR",
-        title="Quy định nghỉ phép",
     )
 
+    assert "duplicate" not in result
     assert "warning" not in result
+
+
+def test_ingest_skips_duplicate_check_without_vector_store():
+    admin = FakeAdminService()
+    result = KnowledgeIngestService(admin).ingest(
+        "file.txt", "Nội dung.".encode("utf-8"), "HR",
+    )
+
+    assert "duplicate" not in result
 
 
 def test_ingest_rejects_unsupported_file():
