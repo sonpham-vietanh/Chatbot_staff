@@ -1,7 +1,9 @@
 from functools import lru_cache
 import secrets
+from typing import Any
+import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
 
 from app.config import Settings, get_settings
 from app.models.schemas import (
@@ -176,21 +178,48 @@ def delete_thread(
     return {"status": "deleted"}
 
 
+def _persist_chat_turn(
+    history: ChatHistoryService,
+    thread_id: str,
+    is_new_thread: bool,
+    user_id: str,
+    question: str,
+    answer: str,
+) -> None:
+    """Chạy sau khi response đã trả về cho user (BackgroundTasks) — lưu lịch sử không
+    được làm chậm câu trả lời, và là best-effort giống chat_logs từ trước tới giờ."""
+    try:
+        if is_new_thread:
+            history.create_thread_with_id(thread_id, user_id, question.strip()[:60])
+        elif not history.thread_belongs_to(thread_id, user_id):
+            return  # thread_id không thuộc user này (vd đã bị xoá) -> bỏ qua, không ghi nhầm
+        history.add_turn(thread_id, question, answer)
+    except Exception:
+        pass
+
+
+def _log_chat(supabase, question: str, result: dict[str, Any]) -> None:
+    try:
+        supabase.insert("chat_logs", [{
+            "question": question,
+            "answer": result["answer"],
+            "grounded": result["grounded"],
+            "citations": result["citations"],
+        }], returning=False)
+    except Exception:
+        pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
+
+
 @router.post("/chat-staff", response_model=ChatResponse)
 def chat_staff(
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(require_user),
     rag: RAGService = Depends(get_rag_service),
     history: ChatHistoryService = Depends(get_chat_history_service),
 ) -> ChatResponse:
-    thread_id = request.thread_id
-    try:
-        if not thread_id:
-            title = request.question.strip()[:60]
-            thread_id = history.create_thread(user["id"], title)["id"]
-        history.add_message(thread_id, "user", request.question)
-    except Exception:
-        pass  # lưu lịch sử là best-effort, không được chặn câu trả lời cho user
+    is_new_thread = not request.thread_id
+    thread_id = request.thread_id or str(uuid.uuid4())
     try:
         result = rag.chat(
             request.question,
@@ -205,17 +234,10 @@ def chat_staff(
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
         raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
-    try:
-        if thread_id:
-            history.add_message(thread_id, "assistant", result["answer"])
-        rag.supabase.insert("chat_logs", [{
-            "question": request.question,
-            "answer": result["answer"],
-            "grounded": result["grounded"],
-            "citations": result["citations"],
-        }], returning=False)
-    except Exception:
-        pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
+    background_tasks.add_task(
+        _persist_chat_turn, history, thread_id, is_new_thread, user["id"], request.question, result["answer"]
+    )
+    background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
     return ChatResponse(**result, thread_id=thread_id)
 
 

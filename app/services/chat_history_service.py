@@ -20,9 +20,15 @@ class ChatHistoryService:
             "order": "updated_at.desc",
         })
 
-    def create_thread(self, user_id: str, title: str = DEFAULT_TITLE) -> dict[str, Any]:
-        rows = self.client.insert("chat_threads", [{"user_id": user_id, "title": title or DEFAULT_TITLE}])
-        return rows[0]
+    def create_thread_with_id(self, thread_id: str, user_id: str, title: str = DEFAULT_TITLE) -> None:
+        """Nhận id do caller tự sinh (uuid4) thay vì để DB default — nhờ vậy route chat
+        có thread_id để trả về ngay mà không phải chờ round-trip insert hoàn tất."""
+        self.client.insert(
+            "chat_threads", [{"id": thread_id, "user_id": user_id, "title": title or DEFAULT_TITLE}], returning=False
+        )
+
+    def thread_belongs_to(self, thread_id: str, user_id: str) -> bool:
+        return self.get_thread(thread_id, user_id) is not None
 
     def get_thread(self, thread_id: str, user_id: str) -> dict[str, Any] | None:
         rows = self.client.select("chat_threads", {
@@ -41,8 +47,13 @@ class ChatHistoryService:
             "order": "created_at.asc",
         })
 
-    def add_message(self, thread_id: str, role: str, content: str) -> None:
-        self.client.insert("chat_messages", [{"thread_id": thread_id, "role": role, "content": content}], returning=False)
+    def add_turn(self, thread_id: str, question: str, answer: str) -> None:
+        """Lưu cả 2 tin nhắn (user + assistant) trong 1 lần insert, cộng 1 lần update
+        updated_at — thay vì 4 round-trip riêng lẻ như trước, giảm độ trễ lưu lịch sử."""
+        self.client.insert("chat_messages", [
+            {"thread_id": thread_id, "role": "user", "content": question},
+            {"thread_id": thread_id, "role": "assistant", "content": answer},
+        ], returning=False)
         self.client.update("chat_threads", {"id": f"eq.{thread_id}"}, {"updated_at": datetime.now(timezone.utc).isoformat()})
 
     def delete_thread(self, thread_id: str, user_id: str) -> None:
