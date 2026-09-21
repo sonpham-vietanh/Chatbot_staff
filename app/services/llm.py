@@ -75,15 +75,17 @@ class GeminiLLMProvider(LLMProvider):
 
 
 class OpenRouterLLMProvider(LLMProvider):
-    """Gọi model OpenRouter qua API tương thích OpenAI."""
+    """Gọi model OpenRouter qua API tương thích OpenAI. Dùng httpx.Client tái sử dụng kết
+    nối (instance này là singleton dùng chung cả app) thay vì mở TCP/TLS mới mỗi lần chat."""
 
     def __init__(self, api_key: str, model: str, base_url: str):
         self.api_key = api_key
         self.model = model
         self.url = f"{base_url.rstrip('/')}/chat/completions"
+        self._http = httpx.Client(timeout=90)
 
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
-        response = httpx.post(
+        response = self._http.post(
             self.url,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -111,7 +113,7 @@ class OpenRouterLLMProvider(LLMProvider):
         import base64
 
         data_uri = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-        response = httpx.post(
+        response = self._http.post(
             self.url,
             headers={
                 "Authorization": f"Bearer {self.api_key}",

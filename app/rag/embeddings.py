@@ -49,12 +49,15 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
 
 
 class OpenRouterEmbeddingProvider(EmbeddingProvider):
-    """Embedding qua OpenRouter, dùng chung API key với LLM (API tương thích OpenAI)."""
+    """Embedding qua OpenRouter, dùng chung API key với LLM (API tương thích OpenAI).
+    Dùng httpx.Client tái sử dụng kết nối (instance này là singleton dùng chung cả app)
+    thay vì mở TCP/TLS mới mỗi lần embed — mỗi câu hỏi chat đều gọi qua đây."""
 
     def __init__(self, api_key: str, model: str, base_url: str):
         self.api_key = api_key
         self.model = model
         self.url = f"{base_url.rstrip('/')}/embeddings"
+        self._http = httpx.Client(timeout=120)
 
     BATCH_SIZE = 64
 
@@ -67,7 +70,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         results: list[list[float]] = []
         for start in range(0, len(texts), self.BATCH_SIZE):
             batch = texts[start:start + self.BATCH_SIZE]
-            response = httpx.post(
+            response = self._http.post(
                 self.url,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",

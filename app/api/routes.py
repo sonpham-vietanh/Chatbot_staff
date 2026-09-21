@@ -72,7 +72,10 @@ def require_user(
 
 @router.get("/health")
 def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
-    notes = rag.admin.list_notes("all")
+    """Endpoint này bị Docker HEALTHCHECK gọi mỗi 30s + frontend gọi mỗi lần load trang,
+    nên chỉ lấy đúng cột 'status' — tránh kéo cả nội dung note (có thể rất nặng với file
+    docx nhiều trang) về chỉ để đếm số lượng."""
+    notes = rag.supabase.select("knowledge_notes", {"select": "status"})
     approved_count = sum(1 for note in notes if note.get("status") == "approved")
     return {
         "status": "ok",
