@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -24,6 +25,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.add_middleware(GZipMiddleware, minimum_size=500)
+"""Nén JS/CSS/JSON trước khi gửi — bundle React ~245KB chưa nén còn ~77KB sau gzip.
+Máy chưa có cache trình duyệt (lần đầu mở) phải tải nguyên file này, nên đây là chỗ
+ảnh hưởng trực tiếp tới thời gian mở trang đầu tiên."""
 
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
