@@ -8,6 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from app.config import Settings, get_settings
 from app.models.schemas import (
     AnalyticsSummary,
+    ApiKeyCreateRequest,
+    ApiKeyOut,
     AuthResponse,
     ChatRequest,
     ChatResponse,
@@ -21,6 +23,7 @@ from app.models.schemas import (
     ThreadSummary,
 )
 from app.services.admin_service import AdminService, NoteNotFoundError
+from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService
 from app.services.auth_service import AuthError, AuthService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
@@ -45,6 +48,10 @@ def get_auth_service(rag: RAGService = Depends(get_rag_service)) -> AuthService:
 
 def get_chat_history_service(rag: RAGService = Depends(get_rag_service)) -> ChatHistoryService:
     return rag.chat_history
+
+
+def get_api_key_service(rag: RAGService = Depends(get_rag_service)) -> ApiKeyService:
+    return rag.api_keys
 
 
 def require_admin(
@@ -300,6 +307,33 @@ def admin_delete_note(note_id: str, admin: AdminService = Depends(get_admin_serv
 @router.get("/admin/analytics", response_model=AnalyticsSummary, dependencies=[Depends(require_admin)])
 def admin_analytics(rag: RAGService = Depends(get_rag_service)) -> dict[str, object]:
     return rag.analytics.summary()
+
+
+@router.get("/admin/api-keys", response_model=list[ApiKeyOut], dependencies=[Depends(require_admin)])
+def admin_list_api_keys(api_keys: ApiKeyService = Depends(get_api_key_service)) -> list[dict[str, object]]:
+    return api_keys.list_keys()
+
+
+@router.post("/admin/api-keys", response_model=ApiKeyOut, dependencies=[Depends(require_admin)])
+def admin_create_api_key(
+    body: ApiKeyCreateRequest, api_keys: ApiKeyService = Depends(get_api_key_service)
+) -> dict[str, object]:
+    return api_keys.create_key(body.label, body.allowed_origin)
+
+
+@router.post("/admin/api-keys/{key_id}/revoke", dependencies=[Depends(require_admin)])
+def admin_revoke_api_key(key_id: str, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
+    try:
+        api_keys.revoke_key(key_id)
+    except ApiKeyNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "revoked"}
+
+
+@router.delete("/admin/api-keys/{key_id}", dependencies=[Depends(require_admin)])
+def admin_delete_api_key(key_id: str, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
+    api_keys.delete_key(key_id)
+    return {"status": "deleted"}
 
 
 @router.post("/admin/notes/create", dependencies=[Depends(require_admin)])

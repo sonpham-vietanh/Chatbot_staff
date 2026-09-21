@@ -7,6 +7,7 @@ from app.rag.prompt_builder import FALLBACK_ANSWER
 from app.rag.vector_store import VectorStore
 from app.services.admin_service import AdminService
 from app.services.analytics_service import AnalyticsService
+from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.llm import build_llm_provider
@@ -38,6 +39,7 @@ class AdvancedRAGPipeline:
         self.auth = AuthService(settings.supabase_url, settings.supabase_service_key)
         self.chat_history = ChatHistoryService(self.supabase)
         self.analytics = AnalyticsService(self.supabase)
+        self.api_keys = ApiKeyService(self.supabase)
 
     def retrieve(self, question: str, user_department: str | None = None,
                  history: list[dict] | None = None) -> list[dict[str, Any]]:

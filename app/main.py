@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import router
+from app.api.routes import get_rag_service, router
 from app.config import get_settings
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -30,14 +30,27 @@ if (FRONTEND_DIST / "assets").is_dir():
 
 
 @app.get("/", include_in_schema=False)
-def demo_ui() -> FileResponse:
+def demo_ui(embed_key: str | None = None) -> FileResponse:
     """Ở production (Docker), frontend/dist đã được build sẵn nên phục vụ luôn React app thật;
-    ở local dev (chưa build) fallback về trang demo tĩnh để không phá luồng chạy hiện tại."""
-    if (FRONTEND_DIST / "index.html").is_file():
-        return FileResponse(FRONTEND_DIST / "index.html")
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
+    ở local dev (chưa build) fallback về trang demo tĩnh để không phá luồng chạy hiện tại.
+
+    Mặc định chặn nhúng (frame-ancestors 'self') để tránh site lạ tự ý iframe trang này —
+    chỉ khi có ?embed_key= khớp 1 key active trong bảng api_keys mới cho phép đúng domain
+    đã đăng ký của key đó nhúng vào."""
+    file_path = FRONTEND_DIST / "index.html" if (FRONTEND_DIST / "index.html").is_file() else Path(__file__).parent / "static" / "index.html"
+    response = FileResponse(file_path)
+    frame_ancestors = "'self'"
+    if embed_key:
+        record = get_rag_service().api_keys.get_active_key(embed_key)
+        if record:
+            frame_ancestors = f"'self' {record['allowed_origin']}"
+            get_rag_service().api_keys.touch_last_used(record["id"])
+    response.headers["Content-Security-Policy"] = f"frame-ancestors {frame_ancestors}"
+    return response
 
 
 @app.get("/admin", include_in_schema=False)
 def admin_ui() -> FileResponse:
-    return FileResponse(Path(__file__).parent / "static" / "admin.html")
+    response = FileResponse(Path(__file__).parent / "static" / "admin.html")
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+    return response

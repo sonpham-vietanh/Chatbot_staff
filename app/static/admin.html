@@ -151,6 +151,7 @@
         <button class="btn small" id="newNoteBtn">+ Tạo note mới</button>
         <button class="btn small secondary" id="uploadBtn">Upload file</button>
         <button class="btn small secondary" id="statsBtn">Thống kê</button>
+        <button class="btn small secondary" id="apiKeysBtn">API nhúng</button>
       </div>
       <div id="list"></div>
     </div>
@@ -503,9 +504,97 @@ function renderStatRows(rows, getText) {
   `).join("");
 }
 
+function embedSnippet(key) {
+  const src = `${window.location.origin}/?embed_key=${key}`;
+  return `<iframe src="${src}" style="width:100%;height:640px;border:0;border-radius:12px;" title="Viet Anh Staff Assistant" allow="clipboard-write"></iframe>`;
+}
+
+async function showApiKeys() {
+  currentId = null;
+  renderList();
+  document.getElementById("editorTitle").textContent = "API nhúng cho trang nội bộ khác";
+  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải danh sách key...</div>';
+  await renderApiKeys();
+}
+
+async function renderApiKeys() {
+  let keys;
+  try {
+    keys = await api("/api-keys");
+  } catch (error) {
+    if (error.message !== "unauthorized") {
+      document.getElementById("editor").innerHTML = `<div class="placeholder">${escapeHtml(error.message)}</div>`;
+    }
+    return;
+  }
+  const rows = keys.map((k) => `
+    <div class="stats-section" style="padding:16px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div>
+          <strong style="font-size:13.5px">${escapeHtml(k.label)}</strong>
+          <span class="badge ${k.status === 'active' ? 'approved' : 'rejected'}" style="margin-left:8px">${k.status}</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          ${k.status === 'active' ? `<button class="btn secondary small" data-revoke="${k.id}">Thu hồi</button>` : ""}
+          <button class="btn danger small" data-delete="${k.id}">Xoá</button>
+        </div>
+      </div>
+      <p style="margin:8px 0 0;font-size:11.5px;color:var(--muted)">Domain được phép nhúng: <strong>${escapeHtml(k.allowed_origin)}</strong> · Tạo lúc ${new Date(k.created_at).toLocaleString('vi-VN')}${k.last_used_at ? ` · Dùng gần nhất ${new Date(k.last_used_at).toLocaleString('vi-VN')}` : ''}</p>
+      <label style="margin-top:10px">Mã nhúng (copy nguyên đoạn dán vào trang kia)</label>
+      <textarea readonly style="min-height:70px;font-size:11.5px" onclick="this.select()">${escapeHtml(embedSnippet(k.key))}</textarea>
+    </div>
+  `).join("") || '<p style="font-size:12.5px;color:var(--muted)">Chưa có API key nào.</p>';
+
+  document.getElementById("editor").innerHTML = `
+    <label>Tên trang nhúng</label>
+    <input id="newKeyLabel" placeholder="Vd: Intranet phòng HR">
+    <label>Domain được phép nhúng (chỉ domain này mới hiển thị được, vd https://intranet.truongvietanh.com)</label>
+    <input id="newKeyOrigin" placeholder="https://...">
+    <div class="actions"><button class="btn" id="createKeyBtn">Tạo API key</button></div>
+    <div style="margin-top:22px">${rows}</div>
+  `;
+
+  document.getElementById("createKeyBtn").onclick = async () => {
+    const label = document.getElementById("newKeyLabel").value.trim();
+    const allowed_origin = document.getElementById("newKeyOrigin").value.trim();
+    if (!label || !allowed_origin) { toast("Cần nhập tên và domain.", true); return; }
+    try {
+      await api("/api-keys", { method: "POST", body: JSON.stringify({ label, allowed_origin }) });
+      toast("Đã tạo API key.");
+      await renderApiKeys();
+    } catch (error) {
+      if (error.message !== "unauthorized") toast(error.message, true);
+    }
+  };
+  document.querySelectorAll("[data-revoke]").forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await api(`/api-keys/${btn.dataset.revoke}/revoke`, { method: "POST" });
+        toast("Đã thu hồi key.");
+        await renderApiKeys();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+  document.querySelectorAll("[data-delete]").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("Xoá vĩnh viễn API key này?")) return;
+      try {
+        await api(`/api-keys/${btn.dataset.delete}`, { method: "DELETE" });
+        toast("Đã xoá key.");
+        await renderApiKeys();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+}
+
 document.getElementById("newNoteBtn").onclick = showNewNoteForm;
 document.getElementById("uploadBtn").onclick = showUploadForm;
 document.getElementById("statsBtn").onclick = showStats;
+document.getElementById("apiKeysBtn").onclick = showApiKeys;
 
 if (token) { showApp(); } else { showLogin(); }
 </script>

@@ -80,6 +80,21 @@ class AnalyticsSummary(BaseModel):
     top_questions: list[TopQuestion]
 
 
+class ApiKeyCreateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    allowed_origin: str = Field(min_length=1, max_length=300)
+
+
+class ApiKeyOut(BaseModel):
+    id: str
+    label: str
+    key: str
+    allowed_origin: str
+    status: str
+    created_at: str
+    last_used_at: str | None = None
+
+
 class SearchResult(BaseModel):
     id: str
     text: str
