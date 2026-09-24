@@ -10,8 +10,10 @@ from app.services.analytics_service import AnalyticsService
 from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
 from app.services.chat_history_service import ChatHistoryService
+from app.services.ingest_agent import IngestAgent
 from app.services.llm import build_llm_provider
 from app.services.supabase_client import SupabaseClient
+from app.services.wiki_sync_service import WikiSyncService
 
 CITATION_LINE_PATTERN = re.compile(r"^\s*\[Nguồn:\s*(.+?)\]?\s*$", re.MULTILINE)
 MAX_HISTORY_TURNS = 6
@@ -40,6 +42,8 @@ class AdvancedRAGPipeline:
         self.chat_history = ChatHistoryService(self.supabase)
         self.analytics = AnalyticsService(self.supabase)
         self.api_keys = ApiKeyService(self.supabase)
+        self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
+        self.wiki_sync = WikiSyncService(self.admin, settings.vault_path) if settings.vault_path else None
 
     def retrieve(self, question: str, user_department: str | None = None,
                  history: list[dict] | None = None) -> list[dict[str, Any]]:

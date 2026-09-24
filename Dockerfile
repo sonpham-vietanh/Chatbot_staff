@@ -11,7 +11,10 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -22,6 +25,21 @@ COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
 ENV PYTHONUNBUFFERED=1
 ENV UVICORN_WORKERS=4
+# Vault Obsidian (wiki_obsidian) duoc mount vao day qua volume ben ngoai -
+# container khong tu chua data vault, phai gan volume persistent trong Coolify
+# tro toi thu muc nay, roi dong bo noi dung vault vao (vd qua CouchDB/LiveSync sau nay).
+ENV VAULT_PATH=/data/vault
+RUN mkdir -p /data/vault /app/data
+
+# Claude CLI (--dangerously-skip-permissions, dung boi Ingest Agent qua
+# permission_mode="bypassPermissions") TU CHOI chay voi quyen root vi ly do bao mat -
+# BAT BUOC chay bang user thuong, khong duoc bo qua buoc nay.
+RUN useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app /data/vault
+USER appuser
+ENV HOME=/home/appuser
+
+VOLUME ["/data/vault"]
 
 EXPOSE 8000
 

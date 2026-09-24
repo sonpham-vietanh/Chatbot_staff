@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import get_rag_service, router
 from app.config import get_settings
+from app.services.vault_watcher import VaultWatcher
+
+# Mac dinh Python khong co handler nao ca - log INFO cua vault_watcher (vd xac nhan
+# lock, ket qua ingest) se bi am tham bo qua neu khong bat dong nay len (da xac
+# nhan qua test container that: khong co dong log nao xuat hien du code co chay).
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
@@ -15,7 +22,22 @@ FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_settings().validate_supabase()
+
+    watcher: VaultWatcher | None = None
+    rag = get_rag_service()
+    if rag.ingest_agent is not None and rag.wiki_sync is not None:
+        watcher = VaultWatcher(
+            vault_path=rag.settings.vault_path,
+            ingest_agent=rag.ingest_agent,
+            wiki_sync=rag.wiki_sync,
+            state_path=Path("data") / "vault_watcher_state.json",
+        )
+        watcher.start()
+
     yield
+
+    if watcher is not None:
+        await watcher.stop()
 
 
 app = FastAPI(
@@ -59,3 +81,4 @@ def admin_ui() -> FileResponse:
     response = FileResponse(Path(__file__).parent / "static" / "admin.html")
     response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     return response
+

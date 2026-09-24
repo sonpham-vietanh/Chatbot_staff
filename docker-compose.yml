@@ -1,3 +1,17 @@
+# CHI DUNG DE TEST LOCAL (docker compose up), KHONG duoc dung file nay tren Coolify.
+#
+# Ly do: Coolify tu dung port 8000 cho chinh bang dieu khien cua no
+# (0.0.0.0:8000->8080 tren container "coolify"). App chatbot production duoc deploy
+# bang Coolify "Build Strategy: Dockerfile" (khong doc file nay), Coolify tu lo viec
+# lo dien app ra ngoai qua Traefik cua no, KHONG bind thang host port 8000. Ngay
+# 2026-09-22 co doi thu Build Strategy cua app nay sang "Compose" de test dong bo,
+# khien port "8000:8000" khai o duoi dung do thang vao port Coolify dang giu - lam
+# sap demo that ~20 phut. Xem log.md/can-xu-ly.md ben wiki_obsidian de biet chi tiet.
+#
+# Co che dong bo vault: Seafile (server RIENG, deploy tu ../seafile-server/, khong
+# nam trong repo nay) + seaf-cli (client CLI chinh thuc cua Seafile, chay o service
+# "seaf-sync" duoi day, xem seaf-sync/) - KHONG dung Syncthing/CouchDB nua (da bo,
+# xem log.md ben wiki_obsidian ngay 2026-09-24 de biet ly do doi huong).
 services:
   chatbot:
     build: .
@@ -17,4 +31,33 @@ services:
       ADMIN_TOKEN: "${ADMIN_TOKEN}"
       TOP_K: "20"
       MIN_RELEVANCE_SCORE: "0.22"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      VAULT_PATH: "/data/vault"
+    volumes:
+      - vault-data:/data/vault
+      - app-data:/app/data
     restart: unless-stopped
+
+  # Giu /data/vault dong bo 2 chieu voi 1 library tren Seafile server, bang
+  # seaf-cli (CLI chinh thuc cua Seafile) - dung 1 "service account" rieng, KHONG
+  # phai tai khoan ca nhan cua ai, da duoc cap quyen read+write vao library nay
+  # qua web admin Seafile tu truoc. Da test that ca 2 chieu upload/download truoc
+  # khi dua vao day (xem log.md ben wiki_obsidian).
+  seaf-sync:
+    build: ./seaf-sync
+    environment:
+      SEAFILE_SERVER_URL: "${SEAFILE_SERVER_URL}"
+      SEAFILE_SYNC_EMAIL: "${SEAFILE_SYNC_EMAIL}"
+      SEAFILE_SYNC_PASSWORD: "${SEAFILE_SYNC_PASSWORD}"
+      SEAFILE_LIBRARY_ID: "${SEAFILE_LIBRARY_ID}"
+      VAULT_PATH: "/data/vault"
+      SEAF_CONFIG_DIR: "/data/seaf-sync-config"
+    volumes:
+      - vault-data:/data/vault
+      - seaf-sync-config:/data/seaf-sync-config
+    restart: unless-stopped
+
+volumes:
+  vault-data:
+  app-data:
+  seaf-sync-config:
