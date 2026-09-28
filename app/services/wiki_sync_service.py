@@ -36,6 +36,17 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     return meta, parts[2].lstrip("\n")
 
 
+def _department_for_path(vault: Path, path: Path) -> str:
+    """Phong ban quyet dinh boi THU MUC VAT LY (core/ vs <domain>/wiki/), khong phai
+    frontmatter `domain:` cua trang - frontmatter co the liet ke nhieu domain lien quan
+    (vd 1 entity lanh dao ca 2 mang) nhung trang do van chi vat ly nam o 1 cho duy nhat.
+    Dung path la nguon su that duy nhat, dung voi nguyen tac phan quyen cua CLAUDE.md."""
+    top = path.relative_to(vault).parts[0]
+    if top == "core":
+        return "Unassigned"
+    return DOMAIN_TO_DEPARTMENT.get(top, "Unassigned")
+
+
 def _wiki_md_files(vault: Path) -> list[Path]:
     files: list[Path] = []
     core_dir = vault / "core"
@@ -58,8 +69,7 @@ def collect_wiki_pages(vault_path: str) -> list[dict[str, Any]]:
         meta, body = _parse_frontmatter(path.read_text(encoding="utf-8"))
         if not meta.get("title"):
             continue
-        domains = meta.get("domain") or []
-        department = DOMAIN_TO_DEPARTMENT.get(domains[0], "Unassigned") if domains else "Unassigned"
+        department = _department_for_path(vault, path)
         pages.append({
             "path": str(path.relative_to(vault)),
             "title": meta["title"],

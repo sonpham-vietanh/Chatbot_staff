@@ -45,18 +45,21 @@ class AdvancedRAGPipeline:
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
         self.wiki_sync = WikiSyncService(self.admin, settings.vault_path) if settings.vault_path else None
 
-    def retrieve(self, question: str, user_department: str | None = None,
-                 history: list[dict] | None = None) -> list[dict[str, Any]]:
-        filters = {"user_department": user_department}
-        return self.vector_store.search(self._retrieval_query(question, history), self.settings.top_k, filters)
+    def retrieve(self, question: str, history: list[dict] | None = None) -> list[dict[str, Any]]:
+        """Tim kiem KHONG loc theo phong ban - moi nhan vien deu co quyen biet toan bo
+        noi dung da duoc duyet vao wiki (chinh sach cua truong, khong phai gioi han ky thuat)."""
+        return self.vector_store.search(self._retrieval_query(question, history), self.settings.top_k)
 
-    def search(self, question: str, user_department: str | None = None) -> list[dict[str, Any]]:
-        return self.retrieve(question, user_department)
+    def search(self, question: str, department: str | None = None) -> list[dict[str, Any]]:
+        """Dung cho /api/debug/search (da gate require_admin) - admin co the loc thu
+        theo 1 phong ban cu the de kiem tra, khong anh huong toi chat-staff thuc te."""
+        filters = {"user_department": department} if department else None
+        return self.vector_store.search(question, self.settings.top_k, filters)
 
-    def chat(self, question: str, user_department: str | None = None,
-             history: list[dict] | None = None) -> dict[str, Any]:
+    def chat(self, question: str, history: list[dict] | None = None,
+             asker_department: str | None = None) -> dict[str, Any]:
         history = (history or [])[-MAX_HISTORY_TURNS:]
-        results = self.retrieve(question, user_department, history)
+        results = self.retrieve(question, history)
         grounded_seeds = [item for item in results if item["score"] >= self.settings.min_relevance_score]
         # Chỉ đưa CONTEXT vào prompt khi retrieval thực sự vượt ngưỡng tin cậy; nếu không,
         # để LLM tự quyết định giữa trả lời giao tiếp thông thường hoặc từ chối theo prompt guardrail.
@@ -65,7 +68,7 @@ class AdvancedRAGPipeline:
         if answer.strip() == FALLBACK_ANSWER:
             self.admin.create_note(
                 title=f"[CẦN BỔ SUNG] {question}",
-                department=user_department or "Unassigned",
+                department=asker_department or "Unassigned",
                 content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
                 status="draft",
                 created_by="AI_Bot",

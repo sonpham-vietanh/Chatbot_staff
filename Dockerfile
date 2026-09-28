@@ -27,7 +27,8 @@ ENV PYTHONUNBUFFERED=1
 ENV UVICORN_WORKERS=4
 # Vault Obsidian (wiki_obsidian) duoc mount vao day qua volume ben ngoai -
 # container khong tu chua data vault, phai gan volume persistent trong Coolify
-# tro toi thu muc nay, roi dong bo noi dung vault vao (vd qua CouchDB/LiveSync sau nay).
+# tro toi thu muc nay. Noi dung vault duoc dong bo vao day boi service "seaf-sync"
+# rieng (seaf-cli, xem seaf-sync/) - container nay chi doc/ghi vao thu muc da dong bo san.
 ENV VAULT_PATH=/data/vault
 RUN mkdir -p /data/vault /app/data
 

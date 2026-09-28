@@ -77,6 +77,15 @@ def require_user(
         raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại") from error
 
 
+def _viewer_department_role(user: dict) -> tuple[str | None, str]:
+    """Doc department/role tu chinh user_metadata cua tai khoan da dang nhap - KHONG
+    tin gia tri client tu gui len (truoc day la request.user_department/department,
+    de nguoi dung tu khai bao nhu the nao cung duoc). Chua gan role -> coi la "staff"
+    (fail closed, khong lo du lieu mat cho toi khi admin gan role qua Supabase dashboard)."""
+    meta = user.get("user_metadata") or {}
+    return meta.get("department"), meta.get("role") or "staff"
+
+
 @router.get("/health")
 def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
     """Endpoint này bị Docker HEALTHCHECK gọi mỗi 30s + frontend gọi mỗi lần load trang,
@@ -93,7 +102,7 @@ def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
     }
 
 
-@router.get("/debug/search", response_model=list[SearchResult])
+@router.get("/debug/search", response_model=list[SearchResult], dependencies=[Depends(require_admin)])
 def debug_search(
     q: str = Query(min_length=2),
     user_department: str | None = None,
@@ -230,11 +239,12 @@ def chat_staff(
 ) -> ChatResponse:
     is_new_thread = not request.thread_id
     thread_id = request.thread_id or str(uuid.uuid4())
+    department, _role = _viewer_department_role(user)
     try:
         result = rag.chat(
             request.question,
-            request.user_department or request.department,
             [turn.model_dump() for turn in request.history],
+            asker_department=department,
         )
     except Exception as error:
         message = str(error)

@@ -7,6 +7,10 @@ from app.services.supabase_client import SupabaseClient
 CANDIDATE_POOL_MULTIPLIER = 5
 MAX_CANDIDATE_POOL = 60
 KEYWORD_BONUS_PER_TERM = 0.05
+SHARED_DEPARTMENT = "Unassigned"
+"""department cua noi dung dung chung (core/ trong vault) - xem _department_for_path
+trong wiki_sync_service.py. Loc theo 1 phong ban cu the KHONG duoc lam mat noi dung
+nay, nen search() luon gom them rieng, khong chi dua vao filter_department cua RPC."""
 
 
 class VectorStore:
@@ -21,11 +25,23 @@ class VectorStore:
     def search(self, query: str, top_k: int, filters: dict[str, str | None] | None = None) -> list[dict[str, Any]]:
         filters = filters or {}
         pool_size = min(max(top_k * CANDIDATE_POOL_MULTIPLIER, top_k), MAX_CANDIDATE_POOL)
+        department = filters.get("user_department")
+        embedding = self.embedding_provider.embed(query)
         rows = self.client.rpc("match_knowledge_chunks", {
-            "query_embedding": self.embedding_provider.embed(query),
+            "query_embedding": embedding,
             "match_count": pool_size,
-            "filter_department": filters.get("user_department"),
+            "filter_department": department,
         })
+        if department and department != SHARED_DEPARTMENT:
+            # filter_department cua RPC so khop tuyet doi nen tu no se loai mat noi
+            # dung dung chung (core/) - goi rieng 1 lan nua de dam bao khong bi mat.
+            shared_rows = self.client.rpc("match_knowledge_chunks", {
+                "query_embedding": embedding,
+                "match_count": pool_size,
+                "filter_department": SHARED_DEPARTMENT,
+            })
+            seen = {(r["note_id"], r["chunk_index"]) for r in rows}
+            rows = rows + [r for r in shared_rows if (r["note_id"], r["chunk_index"]) not in seen]
         query_terms = {term for term in re.findall(r"\w+", query.casefold(), flags=re.UNICODE) if len(term) >= 3}
         results = []
         for row in rows:

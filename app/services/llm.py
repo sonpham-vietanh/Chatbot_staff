@@ -23,7 +23,8 @@ class LLMProvider(ABC):
 
 
 class MockLLMProvider(LLMProvider):
-    """TODO: thay bằng Gemini/OpenAI provider khi có key và chính sách triển khai."""
+    """Provider gia lap (khong goi LLM that) - dung khi EMBEDDING_PROVIDER/LLM_PROVIDER
+    chua cau hinh key that, hoac cho test khong phu thuoc mang."""
 
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
         if not contexts:
@@ -51,7 +52,7 @@ class GeminiLLMProvider(LLMProvider):
         self.client = genai.Client(api_key=api_key)
         self.model = model
         self.config = types.GenerateContentConfig(
-            temperature=0.15,
+            temperature=0.4,
             max_output_tokens=700,
         )
 
@@ -96,7 +97,7 @@ class OpenRouterLLMProvider(LLMProvider):
             json={
                 "model": self.model,
                 "messages": [{"role": "user", "content": build_prompt(question, contexts, history)}],
-                "temperature": 0.15,
+                "temperature": 0.4,
                 "max_tokens": 700,
             },
             timeout=90,

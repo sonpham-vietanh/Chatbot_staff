@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     supabase_service_key: str | None = None
     top_k: int = 20
     min_relevance_score: float = 0.22
-    context_max_chars: int = 12000
     embedding_provider: str = "mock"
     llm_provider: str = "mock"
     gemini_api_key: str | None = None
