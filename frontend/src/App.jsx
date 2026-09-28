@@ -15,7 +15,7 @@ import {
 
 const suggestions = [
   { icon: '◌', label: 'Nghỉ phép', text: 'Tôi cần xin nghỉ phép trước bao lâu?' },
-  { icon: '↗', label: 'Công tác phí', text: 'Quy trình công tác phí thế nào?' },
+  { icon: '↗', label: 'Công tác phí', text: 'Đi công tác thì có được trả phí không?' },
   { icon: '⌁', label: 'Liên hệ HR', text: 'Liên hệ phòng Nhân sự ở đâu?' },
 ]
 
