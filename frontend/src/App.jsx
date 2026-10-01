@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
+  ArrowRightLeft,
   Bot,
   Check,
-  ChevronDown,
   Link2,
   LogOut,
   Menu,
@@ -12,6 +12,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 
 const suggestions = [
   { icon: '◌', label: 'Nghỉ phép', text: 'Tôi cần xin nghỉ phép trước bao lâu?' },
@@ -39,19 +40,56 @@ function App() {
   const [authForm, setAuthForm] = useState({ email: '', password: '', display_name: '' })
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [supabaseAuth, setSupabaseAuth] = useState(null)
+  const [googleConfigured, setGoogleConfigured] = useState(false)
 
   const [threads, setThreads] = useState([])
   const [activeThreadId, setActiveThreadId] = useState(null)
 
   const [question, setQuestion] = useState('')
   const [messages, setMessages] = useState([])
-  const [department, setDepartment] = useState('')
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
   const scrollAnchorRef = useRef(null)
   const tokenRef = useRef(token)
   const refreshingRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const params = new URLSearchParams(window.location.search)
+      try {
+        const response = await fetch('/api/auth/config')
+        const config = response.ok ? await response.json() : { enabled: false }
+        if (cancelled) return
+        setGoogleConfigured(Boolean(config.enabled))
+        if (config.enabled) {
+          const client = createClient(config.supabase_url, config.supabase_anon_key, {
+            auth: { flowType: 'pkce', detectSessionInUrl: false, autoRefreshToken: false },
+          })
+          setSupabaseAuth(client)
+          const code = params.get('code')
+          if (code) {
+            const { data, error } = await client.auth.exchangeCodeForSession(code)
+            window.history.replaceState({}, document.title, window.location.pathname)
+            if (error) throw error
+            persistSession(data.session.access_token, data.session.refresh_token)
+          }
+        }
+        const callbackError = params.get('error_description') || params.get('error')
+        if (callbackError) {
+          window.history.replaceState({}, document.title, window.location.pathname)
+          setAuthError(callbackError)
+        }
+      } catch (error) {
+        if (!cancelled) setAuthError(error.message || 'Không thể khởi tạo đăng nhập Google.')
+      } finally {
+        if (!cancelled && !localStorage.getItem(TOKEN_KEY)) setAuthChecked(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     loadHealth()
@@ -63,7 +101,7 @@ function App() {
 
   useEffect(() => {
     if (!token) {
-      setAuthChecked(true)
+      if (!new URLSearchParams(window.location.search).has('code')) setAuthChecked(true)
       return
     }
     ;(async () => {
@@ -188,6 +226,44 @@ function App() {
     setMessages([])
   }
 
+  async function handleLogout() {
+    try {
+      await supabaseAuth?.auth.signOut({ scope: 'local' })
+    } catch {
+      // Always clear the app session, even if Supabase sign-out cannot reach the network.
+    }
+    clearSession()
+  }
+
+  async function handleSwitchGoogleAccount() {
+    if (!supabaseAuth || !googleConfigured) {
+      setAuthError('Đăng nhập Google chưa được cấu hình. Liên hệ quản trị viên.')
+      await handleLogout()
+      return
+    }
+
+    setAuthLoading(true)
+    setAuthError('')
+    try {
+      await supabaseAuth.auth.signOut({ scope: 'local' })
+    } catch {
+      // Continue switching; the provider account chooser is independent of local session cleanup.
+    }
+    clearSession()
+
+    const { error } = await supabaseAuth.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { prompt: 'select_account' },
+      },
+    })
+    if (error) {
+      setAuthError(error.message)
+      setAuthLoading(false)
+    }
+  }
+
   async function handleAuthSubmit(event) {
     event.preventDefault()
     setAuthLoading(true)
@@ -212,6 +288,26 @@ function App() {
     }
   }
 
+  async function handleGoogleSignIn() {
+    if (!supabaseAuth) {
+      setAuthError('Đăng nhập Google chưa được cấu hình. Liên hệ quản trị viên.')
+      return
+    }
+    setAuthLoading(true)
+    setAuthError('')
+    const { error } = await supabaseAuth.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { prompt: 'select_account' },
+      },
+    })
+    if (error) {
+      setAuthError(error.message)
+      setAuthLoading(false)
+    }
+  }
+
   async function ask(value = question) {
     const text = value.trim()
     if (!text || loading) return
@@ -227,7 +323,6 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: text,
-          user_department: department || null,
           history,
           thread_id: activeThreadId,
         }),
@@ -268,6 +363,8 @@ function App() {
         onSubmit={handleAuthSubmit}
         loading={authLoading}
         error={authError}
+        onGoogle={handleGoogleSignIn}
+        googleConfigured={googleConfigured}
       />
     )
   }
@@ -307,7 +404,10 @@ function App() {
             <p className="truncate text-xs font-bold text-white">{user.display_name || 'Nhân viên'}</p>
             <p className="truncate text-[10px] text-[#9ec3c1]">{user.email}</p>
           </div>
-          <button onClick={clearSession} className="icon-button light !h-8 !w-8 shrink-0" aria-label="Đăng xuất"><LogOut size={14} /></button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button onClick={handleSwitchGoogleAccount} className="icon-button light !h-8 !w-8" aria-label="Đổi tài khoản Google" title="Đổi tài khoản Google"><ArrowRightLeft size={14} /></button>
+            <button onClick={handleLogout} className="icon-button light !h-8 !w-8" aria-label="Đăng xuất" title="Đăng xuất"><LogOut size={14} /></button>
+          </div>
         </div>
       </aside>
       {mobileNav && <button className="fixed inset-0 z-20 bg-[#0b2632]/40 lg:hidden" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
@@ -322,12 +422,12 @@ function App() {
           <section className="paper-panel flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
             <div className="flex items-center justify-between border-b border-[#e2e7e1] px-5 py-4 sm:px-7">
               <div>
-                <p className="text-sm font-bold text-ink">Staff conversation</p>
+                <p className="text-sm font-bold text-ink">Trò chuyện nội bộ</p>
                 <p className="mt-1 text-[11px] text-[#889598]">Trợ lý nội bộ · Trường Việt Anh</p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="hidden items-center gap-2 rounded-full bg-[#e8f4ed] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-[#24725f] sm:flex"><Sparkles size={13} /> RAG ready</div>
-                <div className="flex items-center gap-2 rounded-full border border-[#dce3de] bg-white/70 px-3 py-1.5 text-[11px] text-[#607175]"><span className={`status-dot ${statusOnline ? 'online' : ''}`} />{statusOnline ? `${health.approved_notes || 0}/${health.knowledge_notes || 0} notes` : 'Offline'}</div>
+                <div className="hidden items-center gap-2 rounded-full bg-[#e8f4ed] px-3 py-1.5 text-[10px] font-bold text-[#24725f] sm:flex"><Sparkles size={13} /> Trợ lý sẵn sàng</div>
+                <div className="flex items-center gap-2 rounded-full border border-[#dce3de] bg-white/70 px-3 py-1.5 text-[11px] text-[#607175]"><span className={`status-dot ${statusOnline ? 'online' : ''}`} />{statusOnline ? `${health.approved_notes || 0} tài liệu đã duyệt` : 'Mất kết nối'}</div>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 sm:px-8">
@@ -347,17 +447,17 @@ function App() {
                   <input value={question} onChange={(event) => setQuestion(event.target.value)} className="h-14 w-full rounded-xl border border-[#d8dfda] bg-white pl-4 pr-16 text-sm text-ink outline-none transition placeholder:text-[#9aa5a5] focus:border-[#3c8b79] focus:ring-4 focus:ring-[#3c8b79]/10" placeholder="Hỏi về quy định nội bộ..." />
                   <button disabled={loading || !question.trim()} className="absolute right-2 grid h-10 w-10 place-items-center rounded-lg bg-[#e9795c] text-white transition hover:bg-[#d9654a] disabled:cursor-not-allowed disabled:opacity-35" aria-label="Gửi câu hỏi"><ArrowUp size={18} strokeWidth={2.5} /></button>
                 </div>
-                <div className="mt-3 flex items-center justify-between px-1 text-[10px] text-[#9aa5a5]"><span>Thêm/duyệt dữ liệu qua trang <a href="/admin" className="underline">/admin</a></span><span>Vietnamese · Internal</span></div>
+                <div className="mt-3 flex items-center justify-between px-1 text-[10px] text-[#9aa5a5]"><span>Quản lý dữ liệu tại <a href="/admin" className="underline">/admin</a></span><span>Dữ liệu nội bộ</span></div>
               </div>
             </form>
           </section>
 
           <aside className="hidden w-[300px] shrink-0 flex-col gap-4 overflow-y-auto xl:flex">
             <section className="paper-panel rounded-2xl p-5">
-              <div className="flex items-start justify-between"><div><p className="panel-kicker">Your context</p><h2 className="panel-title mt-1">Phạm vi tìm kiếm</h2></div><ShieldCheck className="text-[#3d8d79]" size={20} /></div>
-              <p className="mt-3 text-xs leading-5 text-[#7c898a]">Thu hẹp phạm vi tra cứu theo phòng ban (không bắt buộc).</p>
-              <Field label="Phòng ban"><Select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">Tất cả phòng ban</option><option>HR</option><option>Finance</option><option>Academic</option><option>Admin</option></Select></Field>
-              <div className="mt-4 flex items-center gap-2 border-t border-[#e7ebe6] pt-4 text-[11px] text-[#718081]"><Check size={14} className="text-[#3d8d79]" /> Approved sources only</div>
+              <div className="flex items-start justify-between"><div><p className="panel-kicker">Thông tin phiên</p><h2 className="panel-title mt-1">Kho tri thức</h2></div><ShieldCheck className="text-[#3d8d79]" size={20} /></div>
+              <p className="mt-3 text-xs leading-5 text-[#7c898a]">Trợ lý tra cứu các nội dung đã được duyệt, áp dụng cho nhân viên.</p>
+              <div className="mt-4 flex items-center gap-2 border-t border-[#e7ebe6] pt-4 text-xs text-[#718081]"><Check size={14} className="text-[#3d8d79]" />{statusOnline ? `${health.approved_notes || 0} tài liệu đang sẵn sàng` : 'Chưa kết nối được kho tri thức'}</div>
+              {user.employee && <div className="mt-3 border-t border-[#e7ebe6] pt-3 text-xs text-[#718081]"><p className="font-bold text-ink">{user.employee.department}</p><p className="mt-1">{user.employee.job_title}</p></div>}
             </section>
           </aside>
         </div>
@@ -366,7 +466,7 @@ function App() {
   )
 }
 
-function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error }) {
+function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error, onGoogle, googleConfigured }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-[#f7f5ef] px-4">
       <div className="ambient ambient-one" />
@@ -375,7 +475,12 @@ function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error }) 
         <div className="flex justify-center"><div className="brand-mark">VA</div></div>
         <h1 className="display-subtitle mt-5 text-center !text-[26px]">{mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</h1>
         <p className="mt-2 text-center text-xs text-[#7a8889]">Staff Assistant · Major Education</p>
-        <form onSubmit={onSubmit} className="mt-7 space-y-3">
+        <button type="button" onClick={onGoogle} disabled={loading || !googleConfigured} className="auth-google mt-6">
+          <span className="font-bold text-[#4285f4]">G</span>
+          {googleConfigured ? 'Đăng nhập với Google' : 'Google chưa được cấu hình'}
+        </button>
+        <div className="my-4 flex items-center gap-3 text-[10px] text-[#9aa5a5]"><span className="h-px flex-1 bg-[#e2e7e1]" />HOẶC EMAIL<span className="h-px flex-1 bg-[#e2e7e1]" /></div>
+        <form onSubmit={onSubmit} className="mt-4 space-y-3">
           {mode === 'signup' && (
             <input required value={form.display_name} onChange={(event) => setForm((current) => ({ ...current, display_name: event.target.value }))} placeholder="Họ tên" className="auth-input" />
           )}
@@ -393,9 +498,7 @@ function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error }) 
 }
 
 function Brand({ light = false }) { return <div className="flex items-center gap-3"><div className={`brand-mark ${light ? 'brand-light' : ''}`}>VA</div><div className={`font-display text-lg leading-none ${light ? 'text-white' : 'text-ink'}`}>Staff Assistant<span className={`mt-1 block font-sans text-[9px] font-bold uppercase tracking-[.16em] ${light ? 'text-[#9ec3c1]' : 'text-[#789096]'}`}>Major Education</span></div></div> }
-function Field({ label, children }) { return <label className="mt-4 block"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.1em] text-[#859292]">{label}</span>{children}</label> }
-function Select(props) { return <div className="relative"><select {...props} className="h-10 w-full appearance-none rounded-lg border border-[#d8dfda] bg-white px-3 pr-8 text-xs text-ink outline-none focus:border-[#3c8b79]" /><ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-[#82908e]" /></div> }
-function EmptyState({ onAsk }) { return <div className="flex h-full min-h-[450px] flex-col justify-center"><div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e5f2e9] text-[#287661]"><Bot size={27} strokeWidth={1.6} /></div><h2 className="display-subtitle">What can I help you find?</h2><p className="mt-3 max-w-[430px] text-sm leading-6 text-[#7a8889]">Tra cứu nhanh các chính sách đã được phê duyệt trong Vault. Mỗi câu trả lời đều có nguồn để bạn kiểm chứng.</p><div className="mt-8 grid gap-2.5 sm:grid-cols-3">{suggestions.map((suggestion) => <button key={suggestion.label} onClick={() => onAsk(suggestion.text)} className="group rounded-xl border border-[#dfe6df] bg-[#fcfbf7] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#87b9a4] hover:bg-[#f0f8f1]"><span className="text-xl text-[#e9795c]">{suggestion.icon}</span><span className="mt-2 block text-xs font-bold text-ink">{suggestion.label}</span><span className="mt-1 block text-[10px] leading-4 text-[#849091]">{suggestion.text}</span></button>)}</div></div> }
+function EmptyState({ onAsk }) { return <div className="flex h-full min-h-[450px] flex-col justify-center"><div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e5f2e9] text-[#287661]"><Bot size={27} strokeWidth={1.6} /></div><h2 className="display-subtitle">Bạn cần tra cứu gì?</h2><p className="mt-3 max-w-[430px] text-sm leading-6 text-[#7a8889]">Tra cứu nhanh các chính sách đã được phê duyệt trong Vault. Mỗi câu trả lời đều có nguồn để bạn kiểm chứng.</p><div className="mt-8 grid gap-2.5 sm:grid-cols-3">{suggestions.map((suggestion) => <button key={suggestion.label} onClick={() => onAsk(suggestion.text)} className="group rounded-xl border border-[#dfe6df] bg-[#fcfbf7] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#87b9a4] hover:bg-[#f0f8f1]"><span className="text-xl text-[#e9795c]">{suggestion.icon}</span><span className="mt-2 block text-xs font-bold text-ink">{suggestion.label}</span><span className="mt-1 block text-[10px] leading-4 text-[#849091]">{suggestion.text}</span></button>)}</div></div> }
 function renderInline(text, keyPrefix) {
   const parts = text.split(/\*\*(.+?)\*\*/g)
   return parts.map((part, index) =>
@@ -430,6 +533,6 @@ function renderMessageText(text) {
   })
 }
 
-function Message({ message }) { return <div className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>{message.role !== 'user' && <div className="avatar"><Bot size={16} /></div>}<div className={`max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>{message.role === 'user' ? message.text : renderMessageText(message.text)}{message.citations?.length > 0 && <div className="mt-3 border-t border-[#3d8d79]/20 pt-2 text-[10px] leading-5 text-[#29745f]"><div className="mb-1 flex items-center gap-1 font-bold uppercase tracking-[.08em]"><Link2 size={11} /> Sources</div>{message.citations.map((citation, index) => <div key={`${citation.source}-${index}`}>[{citation.source} · {citation.heading} · v{citation.version}]</div>)}</div>}</div>{message.role === 'user' && <div className="avatar user-avatar">You</div>}</div> }
+function Message({ message }) { return <div className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>{message.role !== 'user' && <div className="avatar"><Bot size={16} /></div>}<div className={`max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === 'user' ? 'user-bubble' : 'assistant-bubble'}`}>{message.role === 'user' ? message.text : renderMessageText(message.text)}{message.citations?.length > 0 && <div className="mt-3 border-t border-[#3d8d79]/20 pt-2 text-[10px] leading-5 text-[#29745f]"><div className="mb-1 flex items-center gap-1 font-bold uppercase tracking-[.08em]"><Link2 size={11} /> Nguồn</div>{message.citations.map((citation, index) => <div key={`${citation.source}-${index}`}>[{citation.source} · {citation.heading} · v{citation.version}]</div>)}</div>}</div>{message.role === 'user' && <div className="avatar user-avatar">Bạn</div>}</div> }
 
 export default App

@@ -1,4 +1,25 @@
+import base64
+import json
+
 import httpx
+
+
+def is_public_auth_key(api_key: str | None) -> bool:
+    if not api_key:
+        return False
+    if api_key.startswith("sb_publishable_"):
+        return True
+    if api_key.startswith("sb_secret_"):
+        return False
+    if not api_key.startswith("eyJ"):
+        return False
+    try:
+        payload = api_key.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (IndexError, ValueError, json.JSONDecodeError):
+        return False
+    return claims.get("role") == "anon"
 
 
 class AuthError(Exception):
@@ -9,18 +30,19 @@ class AuthError(Exception):
 
 
 class AuthService:
-    """Proxy mỏng tới Supabase Auth REST (GoTrue) — dùng service_role key làm apikey,
-    không cần thêm biến môi trường nào ngoài SUPABASE_URL/SUPABASE_SERVICE_KEY đã có sẵn.
+    """Proxy mỏng tới Supabase Auth REST (GoTrue), xác thực bằng anon/publishable key.
     get_user() chạy trên MỌI request có xác thực nên dùng httpx.Client tái sử dụng kết nối
     thay vì bắt tay TCP/TLS mới mỗi lần — instance này là singleton dùng chung cả app."""
 
-    def __init__(self, url: str, service_key: str):
+    def __init__(self, url: str, api_key: str | None):
         self.base_url = url.rstrip("/")
-        self.service_key = service_key
+        self.api_key = api_key
         self._http = httpx.Client(timeout=30)
 
     def _headers(self) -> dict[str, str]:
-        return {"apikey": self.service_key, "Content-Type": "application/json"}
+        if not is_public_auth_key(self.api_key):
+            raise AuthError(503, "SUPABASE_ANON_KEY phải là anon/publishable key, không dùng secret/service_role key.")
+        return {"apikey": self.api_key, "Content-Type": "application/json"}
 
     def signup(self, email: str, password: str, display_name: str) -> dict:
         response = self._http.post(

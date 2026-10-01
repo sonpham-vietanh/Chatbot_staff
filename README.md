@@ -84,6 +84,17 @@ Xem `wiki_obsidian/CLAUDE.md` để biết quy ước cấu trúc vault (mỗi p
 
 RLS đã bật trên các bảng, không có policy nào (default-deny) — backend dùng `service_role` key nên tự bypass RLS; không có client nào khác được cấp quyền truy cập trực tiếp.
 
+### Danh sách nhân viên và đăng nhập Google
+
+- Migration `supabase/migrations/20261001000000_employee_directory.sql` tạo bảng hồ sơ HR tùy chọn. Không cần nạp roster để cho phép đăng nhập; nhân viên chưa có trong bảng vẫn được vào bằng email công ty đã xác minh.
+- Bảng chỉ giữ thông tin tối thiểu phục vụ hồ sơ cá nhân: email, họ tên, phòng ban, chức vụ, ngày bắt đầu làm việc, trạng thái hồ sơ. Không đưa ngày sinh, bậc lương hoặc hoàn cảnh gia đình vào bảng này hay RAG.
+- Bảng không có policy cho client; backend dùng `SUPABASE_SERVICE_KEY` để tra cứu. Nếu có hồ sơ khớp email, `/api/auth/me` trả về hồ sơ của chính tài khoản đó; thiếu hồ sơ không chặn đăng nhập.
+- `ALLOWED_EMAIL_DOMAINS` là allowlist bắt buộc, ví dụ `truongvietanh.com,mamnon-vietanh.com`. Google/password login, token refresh và API đã đăng nhập đều yêu cầu email đã xác minh thuộc một trong các domain này. Nếu biến chưa cấu hình, backend từ chối đăng nhập (fail closed).
+- Thêm `SUPABASE_ANON_KEY` vào `.env`/biến môi trường runtime. Đây là publishable key, khác với `SUPABASE_SERVICE_KEY`; chỉ key anon được trả về qua `/api/auth/config`.
+- Trong Google Cloud Console tạo OAuth Client ID kiểu Web, thêm origin của local và production, và đặt callback URL chính xác do Supabase hiển thị (thường `https://<project-ref>.supabase.co/auth/v1/callback`). Bật Google provider trong Supabase Auth.
+- Trong Supabase Auth > URL Configuration thêm redirect URLs `http://localhost:5173` và origin production của ứng dụng. Local Vite proxy chuyển `/api/auth/config` về backend; production dùng cùng origin.
+- Google OAuth có thể tự tạo tài khoản Supabase lần đầu; quyền vào chatbot dựa trên email đã xác minh và domain công ty, không dựa trên roster HR. Đăng ký email/mật khẩu cũng chỉ chấp nhận domain được cấu hình.
+
 ⚠️ **Biết trước khi mở rộng nhiều phòng ban**: `filter_department` so khớp tuyệt đối, và giá trị `department` gửi lên hiện do **client tự khai** trong request (`user_department`), chưa gắn với tài khoản đã đăng nhập. Nội dung dùng chung (`core/` trong vault) sẽ không xuất hiện trong câu trả lời có lọc phòng ban cụ thể trừ khi sửa lại logic truy vấn/gán quyền trước — xem `wiki_obsidian/can-xu-ly.md`.
 
 ## Chạy local
@@ -145,7 +156,7 @@ Có 2 đường ghi dữ liệu vào wiki:
 ## API chính
 
 - `GET /api/health` — trạng thái + số note/note đã duyệt
-- `POST /api/auth/signup|login|refresh`, `GET /api/auth/me` — tài khoản qua Supabase Auth (giới hạn theo `ALLOWED_EMAIL_DOMAINS` nếu có set)
+- `POST /api/auth/signup|login|refresh`, `GET /api/auth/me` — Supabase Auth; email phải xác minh và thuộc `ALLOWED_EMAIL_DOMAINS`
 - `GET/DELETE /api/chat/threads*` — lịch sử hội thoại của user đang đăng nhập
 - `POST /api/chat-staff` — hỏi đáp grounded, có citation, cần đăng nhập, tự log vào `chat_logs` + lưu thread
 - `GET /api/debug/search?q=` — xem chunk và score được retrieve
@@ -155,7 +166,7 @@ Có 2 đường ghi dữ liệu vào wiki:
 
 ## Deploy (Docker / Coolify)
 
-`Dockerfile` build sẵn frontend rồi gộp vào image Python — 1 container phục vụ cả API lẫn giao diện, cài kèm Claude CLI (cho Ingest Agent). Cần 1 volume persistent mount vào `/data/vault` (Coolify), và service `drive-sync/` chạy song song để đồng bộ vault thật xuống đó với Google Drive bằng rclone (xem `docker-compose.yml` — file này chỉ dùng test local, biến môi trường thật set trực tiếp trong Coolify). Biến môi trường bắt buộc: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN`; thêm `ANTHROPIC_API_KEY`+`VAULT_PATH`+3 biến `DRIVE_*` nếu muốn bật nhánh Ingest Agent.
+`Dockerfile` build sẵn frontend rồi gộp vào image Python — 1 container phục vụ cả API lẫn giao diện, cài kèm Claude CLI (cho Ingest Agent). Cần 1 volume persistent mount vào `/data/vault` (Coolify), và service `drive-sync/` chạy song song để đồng bộ vault thật xuống đó với Google Drive bằng rclone (xem `docker-compose.yml` — file này chỉ dùng test local, biến môi trường thật set trực tiếp trong Coolify). Biến môi trường bắt buộc: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`, `ALLOWED_EMAIL_DOMAINS`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN`; thêm `ANTHROPIC_API_KEY`+`VAULT_PATH`+3 biến `DRIVE_*` nếu muốn bật nhánh Ingest Agent.
 
 ## Checklist trước pilot
 

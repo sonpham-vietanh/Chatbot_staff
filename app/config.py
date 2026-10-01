@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     supabase_url: str | None = None
     supabase_service_key: str | None = None
+    supabase_anon_key: str | None = None
     top_k: int = 20
     min_relevance_score: float = 0.22
     embedding_provider: str = "mock"

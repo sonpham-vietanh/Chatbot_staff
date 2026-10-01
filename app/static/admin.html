@@ -55,6 +55,10 @@
   .panel-head select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; color: var(--ink); }
   .panel-head-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: rgba(18,109,106,.03); }
   .panel-head-actions .btn { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list-search { padding: 12px 16px; border-bottom: 1px solid var(--line); background: #fffdf7; }
+  .list-search input { width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-size: 12.5px; outline: none; }
+  .list-search input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.1); }
+  .list-summary { padding: 8px 16px 0; color: var(--muted); font-size: 11px; }
 
   /* ---- note list ---- */
   #list { max-height: 72vh; overflow: auto; }
@@ -156,9 +160,11 @@
         <button class="btn small secondary" id="statsBtn">Thống kê</button>
         <button class="btn small secondary" id="apiKeysBtn">API nhúng</button>
       </div>
+      <div class="list-search"><input id="noteSearch" type="search" placeholder="Tìm tiêu đề, phòng ban..." aria-label="Tìm note theo tiêu đề, phòng ban hoặc nội dung"></div>
+      <div class="list-summary" id="listSummary" aria-live="polite"></div>
       <div id="list"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="editorPanel">
       <div class="panel-head"><strong class="serif" id="editorTitle">Chọn một note để xem chi tiết</strong></div>
       <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Tạo note mới" / "Upload file".</div></div>
     </div>
@@ -173,6 +179,7 @@ const STATUSES = ["draft", "approved", "rejected"];
 let token = sessionStorage.getItem("admin_token") || "";
 let notes = [];
 let currentId = null;
+let listQuery = "";
 
 function headers() { return { "X-Admin-Token": token, "Content-Type": "application/json" }; }
 
@@ -244,6 +251,15 @@ document.getElementById("logoutBtn").onclick = () => {
 };
 
 document.getElementById("statusFilter").onchange = loadNotes;
+document.getElementById("noteSearch").oninput = (event) => {
+  listQuery = event.target.value.trim().toLocaleLowerCase("vi");
+  renderList();
+};
+
+function revealEditorOnMobile() {
+  if (!window.matchMedia("(max-width: 900px)").matches) return;
+  requestAnimationFrame(() => document.getElementById("editorPanel").scrollIntoView({ behavior: "smooth", block: "start" }));
+}
 
 async function loadNotes() {
   const status = document.getElementById("statusFilter").value;
@@ -251,7 +267,7 @@ async function loadNotes() {
     notes = await api(`/notes?status=${status}`);
   } catch (error) {
     if (error.message === "unauthorized") return;
-    document.getElementById("list").innerHTML = `<div class="empty">${error.message}</div>`;
+    document.getElementById("list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     return;
   }
   renderList();
@@ -259,11 +275,17 @@ async function loadNotes() {
 
 function renderList() {
   const list = document.getElementById("list");
+  const visibleNotes = notes.filter(note => [note.title, note.department, note.preview].some(value => String(value || "").toLocaleLowerCase("vi").includes(listQuery)));
+  document.getElementById("listSummary").textContent = listQuery ? `${visibleNotes.length}/${notes.length} note phù hợp` : `${notes.length} note`;
   if (!notes.length) {
     list.innerHTML = '<div class="empty">Không có note nào.</div>';
     return;
   }
-  list.innerHTML = notes.map(note => {
+  if (!visibleNotes.length) {
+    list.innerHTML = '<div class="empty">Không tìm thấy note phù hợp. Thử từ khóa khác.</div>';
+    return;
+  }
+  list.innerHTML = visibleNotes.map(note => {
     const isGap = note.title.startsWith("[CẦN BỔ SUNG]");
     const title = isGap ? note.title.replace("[CẦN BỔ SUNG] ", "") : note.title;
     return `
@@ -289,6 +311,9 @@ function escapeHtml(value) {
 async function openNote(id) {
   currentId = id;
   renderList();
+  document.getElementById("editorTitle").textContent = "Đang tải note...";
+  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải nội dung...</div>';
+  revealEditorOnMobile();
   let note;
   try {
     note = await api(`/notes/detail?note_id=${encodeURIComponent(id)}`);
@@ -395,6 +420,7 @@ function showNewNoteForm() {
       <button class="btn secondary" id="createApprovedBtn">Lưu & Duyệt luôn</button>
     </div>
   `;
+  revealEditorOnMobile();
   document.getElementById("createDraftBtn").onclick = () => createNote("draft");
   document.getElementById("createApprovedBtn").onclick = () => createNote("approved");
 }
@@ -432,6 +458,7 @@ function showUploadForm() {
     <p style="margin:14px 0 0;font-size:11.5px;color:var(--muted);line-height:1.5">File sẽ được duyệt tự động và chatbot dùng được ngay — kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
     <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload & duyệt tự động</button></div>
   `;
+  revealEditorOnMobile();
   const dropZone = document.getElementById("dropZone");
   const fileInput = document.getElementById("uploadFileInput");
   const submitBtn = document.getElementById("uploadSubmitBtn");
@@ -479,6 +506,7 @@ async function showStats() {
   renderList();
   document.getElementById("editorTitle").textContent = "Thống kê câu hỏi";
   document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải thống kê...</div>';
+  revealEditorOnMobile();
   let data;
   try {
     data = await api("/analytics");
@@ -526,6 +554,7 @@ async function showApiKeys() {
   renderList();
   document.getElementById("editorTitle").textContent = "API nhúng cho trang nội bộ khác";
   document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải danh sách key...</div>';
+  revealEditorOnMobile();
   await renderApiKeys();
 }
 

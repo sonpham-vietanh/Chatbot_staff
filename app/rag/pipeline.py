@@ -38,7 +38,7 @@ class AdvancedRAGPipeline:
         llm_base_url = settings.openrouter_base_url if settings.llm_provider == "openrouter" else "https://generativelanguage.googleapis.com"
         self.llm = build_llm_provider(settings.llm_provider, llm_api_key, llm_model, llm_base_url)
         self.admin = AdminService(self.supabase, self.embedding_provider)
-        self.auth = AuthService(settings.supabase_url, settings.supabase_service_key)
+        self.auth = AuthService(settings.supabase_url, settings.supabase_anon_key)
         self.chat_history = ChatHistoryService(self.supabase)
         self.analytics = AnalyticsService(self.supabase)
         self.api_keys = ApiKeyService(self.supabase)

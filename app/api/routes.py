@@ -24,8 +24,9 @@ from app.models.schemas import (
 )
 from app.services.admin_service import AdminService, NoteNotFoundError
 from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService
-from app.services.auth_service import AuthError, AuthService
+from app.services.auth_service import AuthError, AuthService, is_public_auth_key
 from app.services.chat_history_service import ChatHistoryService
+from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.rag_service import RAGService
 
@@ -54,6 +55,10 @@ def get_api_key_service(rag: RAGService = Depends(get_rag_service)) -> ApiKeySer
     return rag.api_keys
 
 
+def get_employee_directory(rag: RAGService = Depends(get_rag_service)) -> EmployeeDirectoryService:
+    return EmployeeDirectoryService(rag.supabase)
+
+
 def require_admin(
     settings: Settings = Depends(get_settings),
     x_admin_token: str | None = Header(default=None),
@@ -67,23 +72,46 @@ def require_admin(
 def require_user(
     authorization: str | None = Header(default=None),
     auth: AuthService = Depends(get_auth_service),
+    employees: EmployeeDirectoryService = Depends(get_employee_directory),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Cần đăng nhập để dùng trợ lý")
     token = authorization.split(" ", 1)[1]
     try:
-        return auth.get_user(token)
+        user = auth.get_user(token)
     except AuthError as error:
         raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại") from error
+    _require_verified_company_user(user, settings)
+    try:
+        user["employee_profile"] = employees.get_active_employee(user.get("email"))
+    except Exception:
+        user["employee_profile"] = None
+    return user
+
+
+def _is_company_email(email: str | None, settings: Settings) -> bool:
+    allowed = [d.strip().casefold().lstrip("@") for d in (settings.allowed_email_domains or "").split(",") if d.strip()]
+    if not allowed:
+        raise HTTPException(status_code=503, detail="ALLOWED_EMAIL_DOMAINS chưa được cấu hình trong .env")
+    if not email or "@" not in email:
+        return False
+    domain = email.strip().casefold().rsplit("@", 1)[-1]
+    return domain in allowed
+
+
+def _require_verified_company_user(user: dict, settings: Settings) -> None:
+    if not user.get("email_confirmed_at"):
+        raise HTTPException(status_code=403, detail="Cần xác minh email trước khi sử dụng tài khoản.")
+    if not _is_company_email(user.get("email"), settings):
+        raise HTTPException(status_code=403, detail="Chỉ email đã xác minh thuộc domain công ty mới được sử dụng chatbot.")
 
 
 def _viewer_department_role(user: dict) -> tuple[str | None, str]:
-    """Doc department/role tu chinh user_metadata cua tai khoan da dang nhap - KHONG
-    tin gia tri client tu gui len (truoc day la request.user_department/department,
-    de nguoi dung tu khai bao nhu the nao cung duoc). Chua gan role -> coi la "staff"
-    (fail closed, khong lo du lieu mat cho toi khi admin gan role qua Supabase dashboard)."""
-    meta = user.get("user_metadata") or {}
-    return meta.get("department"), meta.get("role") or "staff"
+    """Dùng department HR cấp; user_metadata do người dùng chỉnh sửa nên không tin cậy."""
+    profile = user.get("employee_profile") or {}
+    app_metadata = user.get("app_metadata") or {}
+    return profile.get("department"), app_metadata.get("role") or "staff"
 
 
 @router.get("/health")
@@ -102,6 +130,18 @@ def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
     }
 
 
+@router.get("/auth/config")
+def auth_config(settings: Settings = Depends(get_settings)) -> dict[str, str | bool | None]:
+    """Public Supabase Auth config only; the anon key is designed for browser use."""
+    domains_configured = any(d.strip() for d in (settings.allowed_email_domains or "").split(","))
+    enabled = bool(settings.supabase_url and is_public_auth_key(settings.supabase_anon_key) and domains_configured)
+    return {
+        "enabled": enabled,
+        "supabase_url": settings.supabase_url if enabled else None,
+        "supabase_anon_key": settings.supabase_anon_key if enabled else None,
+    }
+
+
 @router.get("/debug/search", response_model=list[SearchResult], dependencies=[Depends(require_admin)])
 def debug_search(
     q: str = Query(min_length=2),
@@ -113,15 +153,8 @@ def debug_search(
 
 
 def _check_email_domain(email: str, settings: Settings) -> None:
-    if not settings.allowed_email_domains:
-        return
-    allowed = [d.strip().casefold().lstrip("@") for d in settings.allowed_email_domains.split(",") if d.strip()]
-    if not allowed:
-        return
-    domain = email.strip().casefold().rsplit("@", 1)[-1]
-    if domain not in allowed:
-        domains_text = ", ".join(f"@{d}" for d in allowed)
-        raise HTTPException(status_code=400, detail=f"Chỉ email công ty ({domains_text}) mới được đăng ký tài khoản.")
+    if not _is_company_email(email, settings):
+        raise HTTPException(status_code=400, detail="Chỉ email thuộc domain công ty mới được đăng ký tài khoản.")
 
 
 @router.post("/auth/signup", response_model=AuthResponse)
@@ -134,39 +167,60 @@ def signup(
     try:
         result = auth.signup(body.email, body.password, body.display_name)
     except AuthError as error:
+        if error.status_code >= 500:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from error
         raise HTTPException(status_code=400, detail=error.detail) from error
     if not result.get("access_token"):
         raise HTTPException(
             status_code=400,
             detail="Tài khoản đã được tạo nhưng cần xác nhận email. Liên hệ admin để bật đăng nhập ngay không cần xác nhận email.",
         )
+    _require_verified_company_user(auth.get_user(result["access_token"]), settings)
     return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
 
 
 @router.post("/auth/login", response_model=AuthResponse)
-def login(body: LoginRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+def login(
+    body: LoginRequest,
+    auth: AuthService = Depends(get_auth_service),
+    settings: Settings = Depends(get_settings),
+) -> AuthResponse:
     try:
+        _check_email_domain(body.email, settings)
         result = auth.login(body.email, body.password)
+        _require_verified_company_user(auth.get_user(result["access_token"]), settings)
     except AuthError as error:
+        if error.status_code >= 500:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from error
         raise HTTPException(status_code=401, detail="Email hoặc mật khẩu không đúng") from error
     return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
 
 
 @router.post("/auth/refresh", response_model=AuthResponse)
-def refresh_token(body: RefreshRequest, auth: AuthService = Depends(get_auth_service)) -> AuthResponse:
+def refresh_token(
+    body: RefreshRequest,
+    auth: AuthService = Depends(get_auth_service),
+    settings: Settings = Depends(get_settings),
+) -> AuthResponse:
     try:
         result = auth.refresh(body.refresh_token)
+        _require_verified_company_user(auth.get_user(result["access_token"]), settings)
     except AuthError as error:
+        if error.status_code >= 500:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from error
         raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại") from error
     return AuthResponse(access_token=result["access_token"], refresh_token=result["refresh_token"], user=result["user"])
 
 
 @router.get("/auth/me")
 def me(user: dict = Depends(require_user)) -> dict:
+    profile = user.get("employee_profile")
+    metadata = user.get("user_metadata") or {}
     return {
         "id": user["id"],
         "email": user.get("email"),
-        "display_name": (user.get("user_metadata") or {}).get("display_name"),
+        "display_name": (profile or {}).get("display_name") or metadata.get("display_name") or metadata.get("full_name") or metadata.get("name"),
+        "employee": profile,
     }
 
 
