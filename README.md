@@ -1,11 +1,11 @@
 # Viet Anh Staff Assistant
 
-RAG nội bộ cho staff Trường Việt Anh / Major Education. Tri thức, vector embedding, tài khoản người dùng, lịch sử hội thoại và log — lưu trên **Supabase (Postgres + pgvector + Auth)**. Nguồn tri thức đến từ 2 đường: (1) admin tạo/sửa/duyệt trực tiếp qua `/admin`, (2) tự động qua vault Obsidian (`wiki_obsidian`, đồng bộ về server bằng Seafile) + Ingest Agent.
+RAG nội bộ cho staff Trường Việt Anh / Major Education. Tri thức, vector embedding, tài khoản người dùng, lịch sử hội thoại và log — lưu trên **Supabase (Postgres + pgvector + Auth)**. Nguồn tri thức đến từ 2 đường: (1) admin tạo/sửa/duyệt trực tiếp qua `/admin`, (2) tự động qua vault Obsidian (`wiki_obsidian`, đồng bộ về server bằng Google Drive) + Ingest Agent.
 
 ## Kiến trúc
 
 ```text
-Vault Obsidian (may nguoi dung) --Seafile (seaf-sync sidecar)--> /data/vault (server)
+Vault Obsidian (may nguoi dung) --Google Drive (drive-sync sidecar, rclone)--> /data/vault (server)
         |
         v
 VaultWatcher (poll raw/ moi domain) -> phat hien nguon moi
@@ -33,7 +33,7 @@ FastAPI: /api/chat-staff (yeu cau dang nhap, tu log chat_logs + chat_threads),
          /api/auth/*, /api/chat/threads*, /api/debug/search, /api/admin/*
 ```
 
-Vì mỗi lần tạo/sửa/duyệt note đều đồng bộ chunk+embedding ngay trong cùng request, hệ thống không cần khoá reindex riêng, không có "cửa sổ collection rỗng". Nhánh vault/Seafile/Ingest Agent là đường nạp tri thức tự động (leader chỉ cần thả file vào đúng `<domain>/raw/` trong Obsidian, không cần vào `/admin`); `VaultWatcher` dùng file-lock (`fcntl`) để chỉ 1 trong N uvicorn worker chạy vòng poll.
+Vì mỗi lần tạo/sửa/duyệt note đều đồng bộ chunk+embedding ngay trong cùng request, hệ thống không cần khoá reindex riêng, không có "cửa sổ collection rỗng". Nhánh vault/Google Drive/Ingest Agent là đường nạp tri thức tự động (leader chỉ cần thả file vào đúng `<domain>/raw/` trong Obsidian, không cần vào `/admin`); `VaultWatcher` dùng file-lock (`fcntl`) để chỉ 1 trong N uvicorn worker chạy vòng poll.
 
 ## Cấu trúc
 
@@ -66,13 +66,13 @@ app/
     index.html                   # Demo UI tĩnh (fallback khi chưa build React)
     admin.html                   # Trang quản trị: tạo/sửa/duyệt/upload note
 frontend/                        # React + Vite + Tailwind (giao diện chat chính)
-seaf-sync/                        # Sidecar seaf-cli, đồng bộ vault Obsidian xuống /data/vault qua Seafile
+drive-sync/                       # Sidecar rclone bisync, đồng bộ 2 chiều vault Obsidian với Google Drive
 tests/
 requirements.txt
 .env.example
 ```
 
-Xem `../seafile-server/` (thư mục anh em, ngoài repo này) để deploy Seafile server, và `wiki_obsidian/CLAUDE.md` để biết quy ước cấu trúc vault (mỗi phòng ban 1 thư mục gốc + `core/` dùng chung).
+Xem `wiki_obsidian/CLAUDE.md` để biết quy ước cấu trúc vault (mỗi phòng ban 1 thư mục gốc + `core/` dùng chung). Đồng bộ vault dùng Google Drive (1 tài khoản Drive riêng "sở hữu" vault, share từng thư mục con cho đúng người) + `drive-sync/` (rclone bisync) — không còn tự host server đồng bộ riêng (đã thử Seafile tự host, bỏ vì chi phí vận hành quá cao so với lợi ích, xem `wiki_obsidian/log.md` 2026-09-28).
 
 ## Schema Supabase
 
@@ -140,7 +140,7 @@ Nếu câu hỏi không có context phù hợp, chatbot từ chối an toàn và
 Có 2 đường ghi dữ liệu vào wiki:
 
 - **Qua `/admin`** (web): tạo note trực tiếp, upload file (`.md .txt .csv .json .pdf .docx`, tối đa 10MB), sửa/duyệt/từ chối/xoá — mỗi thao tác tự chunk lại + tính embedding mới trong cùng request. Xác thực bằng `ADMIN_TOKEN` (1 token dùng chung, MVP — chưa phải tài khoản riêng từng người).
-- **Qua vault Obsidian**: leader/nhân viên bỏ file nguồn vào đúng `<domain>/raw/` trong vault (đồng bộ bằng Seafile) → `VaultWatcher` phát hiện → chạy Ingest Agent ghi lại thành trang wiki đúng quy ước → `WikiSyncService` đẩy vào Supabase tự động. Khung chat không có tính năng upload (đã gỡ vì lý do bảo mật: bản cũ chỉ tin theo lựa chọn phòng ban/quyền do client tự khai, không xác thực thật).
+- **Qua vault Obsidian**: leader/nhân viên bỏ file nguồn vào đúng `<domain>/raw/` trong vault (đồng bộ bằng Google Drive) → `VaultWatcher` phát hiện → chạy Ingest Agent ghi lại thành trang wiki đúng quy ước → `WikiSyncService` đẩy vào Supabase tự động. Khung chat không có tính năng upload (đã gỡ vì lý do bảo mật: bản cũ chỉ tin theo lựa chọn phòng ban/quyền do client tự khai, không xác thực thật).
 
 ## API chính
 
@@ -155,7 +155,7 @@ Có 2 đường ghi dữ liệu vào wiki:
 
 ## Deploy (Docker / Coolify)
 
-`Dockerfile` build sẵn frontend rồi gộp vào image Python — 1 container phục vụ cả API lẫn giao diện, cài kèm Claude CLI (cho Ingest Agent). Cần 1 volume persistent mount vào `/data/vault` (Coolify), và service `seaf-sync/` chạy song song để đồng bộ vault thật xuống đó qua Seafile (xem `docker-compose.yml` — file này chỉ dùng test local, biến môi trường thật set trực tiếp trong Coolify). Biến môi trường bắt buộc: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN`; thêm `ANTHROPIC_API_KEY`+`VAULT_PATH`+4 biến `SEAFILE_*` nếu muốn bật nhánh Ingest Agent.
+`Dockerfile` build sẵn frontend rồi gộp vào image Python — 1 container phục vụ cả API lẫn giao diện, cài kèm Claude CLI (cho Ingest Agent). Cần 1 volume persistent mount vào `/data/vault` (Coolify), và service `drive-sync/` chạy song song để đồng bộ vault thật xuống đó với Google Drive bằng rclone (xem `docker-compose.yml` — file này chỉ dùng test local, biến môi trường thật set trực tiếp trong Coolify). Biến môi trường bắt buộc: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `OPENROUTER_API_KEY`, `ADMIN_TOKEN`; thêm `ANTHROPIC_API_KEY`+`VAULT_PATH`+3 biến `DRIVE_*` nếu muốn bật nhánh Ingest Agent.
 
 ## Checklist trước pilot
 
@@ -165,4 +165,4 @@ Có 2 đường ghi dữ liệu vào wiki:
 - [ ] Thêm rate limit, observability
 - [ ] Backup định kỳ Supabase (Point-in-time recovery hoặc export)
 - [ ] Bổ sung test retrieval, prompt injection, regression dataset, và test cho vault_watcher/ingest_agent/wiki_sync_service (hiện chưa có)
-- [ ] Deploy `seafile-server/` lên Coolify + tạo service account cho `seaf-sync`
+- [ ] Tạo tài khoản Google Drive riêng "sở hữu" vault + chạy `rclone config` lấy `DRIVE_RCLONE_CONFIG_B64` cho `drive-sync`

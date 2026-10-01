@@ -8,10 +8,12 @@
 # khien port "8000:8000" khai o duoi dung do thang vao port Coolify dang giu - lam
 # sap demo that ~20 phut. Xem log.md/can-xu-ly.md ben wiki_obsidian de biet chi tiet.
 #
-# Co che dong bo vault: Seafile (server RIENG, deploy tu ../seafile-server/, khong
-# nam trong repo nay) + seaf-cli (client CLI chinh thuc cua Seafile, chay o service
-# "seaf-sync" duoi day, xem seaf-sync/) - KHONG dung Syncthing/CouchDB nua (da bo,
-# xem log.md ben wiki_obsidian ngay 2026-09-24 de biet ly do doi huong).
+# Co che dong bo vault: Google Drive, dong bo 2 chieu bang rclone (khong co client
+# Drive chinh thuc chay tren Linux server nen dung rclone o service "drive-sync"
+# duoi day, xem drive-sync/) - da tung thu Seafile tu host (server rieng) nhung bo
+# vi qua nhieu chi phi van hanh (Docker networking, thieu label Traefik, phai tu
+# quan ly MariaDB/Redis...) so voi loi ich thuc te, xem log.md ben wiki_obsidian
+# ngay 2026-09-28 de biet chi tiet ly do doi huong.
 services:
   chatbot:
     build: .
@@ -38,26 +40,25 @@ services:
       - app-data:/app/data
     restart: unless-stopped
 
-  # Giu /data/vault dong bo 2 chieu voi 1 library tren Seafile server, bang
-  # seaf-cli (CLI chinh thuc cua Seafile) - dung 1 "service account" rieng, KHONG
-  # phai tai khoan ca nhan cua ai, da duoc cap quyen read+write vao library nay
-  # qua web admin Seafile tu truoc. Da test that ca 2 chieu upload/download truoc
-  # khi dua vao day (xem log.md ben wiki_obsidian).
-  seaf-sync:
-    build: ./seaf-sync
+  # Giu /data/vault dong bo 2 chieu voi 1 thu muc goc tren Google Drive, bang
+  # rclone bisync - dung 1 tai khoan Google rieng (khong phai ca nhan ai) "so huu"
+  # toan bo thu muc vault, roi share tung thu muc con ra cho dung nguoi/nhom that
+  # (leader, CEO...) voi quyen xem/sua phu hop - giong cach lam voi Seafile library
+  # truoc day, chi khac cong cu.
+  drive-sync:
+    build: ./drive-sync
     environment:
-      SEAFILE_SERVER_URL: "${SEAFILE_SERVER_URL}"
-      SEAFILE_SYNC_EMAIL: "${SEAFILE_SYNC_EMAIL}"
-      SEAFILE_SYNC_PASSWORD: "${SEAFILE_SYNC_PASSWORD}"
-      SEAFILE_LIBRARY_ID: "${SEAFILE_LIBRARY_ID}"
+      DRIVE_RCLONE_CONFIG_B64: "${DRIVE_RCLONE_CONFIG_B64}"
+      DRIVE_REMOTE_NAME: "${DRIVE_REMOTE_NAME}"
+      DRIVE_FOLDER_PATH: "${DRIVE_FOLDER_PATH}"
       VAULT_PATH: "/data/vault"
-      SEAF_CONFIG_DIR: "/data/seaf-sync-config"
+      DRIVE_SYNC_STATE_DIR: "/data/drive-sync-state"
     volumes:
       - vault-data:/data/vault
-      - seaf-sync-config:/data/seaf-sync-config
+      - drive-sync-state:/data/drive-sync-state
     restart: unless-stopped
 
 volumes:
   vault-data:
   app-data:
-  seaf-sync-config:
+  drive-sync-state:

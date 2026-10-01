@@ -1,12 +1,12 @@
-"""Theo doi vault Obsidian (dong bo xuong server qua Seafile - seaf-cli chay o
-service rieng, xem seaf-sync/) de tu dong kich hoat Ingest Agent khi co nguon moi
-trong raw/, va tu phat hien wiki/ bi sua tay ngoai luong (khong phai do chinh
-Agent vua chay) de ghi log canh bao thay vi am tham bo qua. Thay the hoan toan
-cho endpoint /api/leader/submit truoc day - leader gio chi thao tac trong
+"""Theo doi vault Obsidian (dong bo xuong server qua Google Drive - rclone bisync
+chay o service rieng, xem drive-sync/) de tu dong kich hoat Ingest Agent khi co
+nguon moi trong raw/, va tu phat hien wiki/ bi sua tay ngoai luong (khong phai do
+chinh Agent vua chay) de ghi log canh bao thay vi am tham bo qua. Thay the hoan
+toan cho endpoint /api/leader/submit truoc day - leader gio chi thao tac trong
 Obsidian, khong can web form nao ca.
 
 Dung polling (khong dung OS file-event nhu watchdog/inotify) vi thu muc vault la
-mot Docker volume duoc seaf-cli ghi vao tu 1 container/tien trinh khac - khong
+mot Docker volume duoc drive-sync ghi vao tu 1 container/tien trinh khac - khong
 dam bao inotify/ReadDirectoryChanges bao chinh xac tren moi nen tang/filesystem overlay.
 
 QUAN TRONG: uvicorn chay nhieu worker process (UVICORN_WORKERS), moi worker se tu
