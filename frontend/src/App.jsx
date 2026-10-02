@@ -380,11 +380,11 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface text-ink">
       <aside className={`${mobileNav ? 'mobile-open' : ''} sidebar fixed inset-y-0 left-0 z-30 flex w-[300px] -translate-x-full flex-col border-r border-line bg-white px-5 py-6 transition-transform lg:static lg:h-screen lg:translate-x-0`}>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-5">
           <Brand />
           <button className="icon-button lg:hidden" onClick={() => setMobileNav(false)} aria-label="Đóng menu"><X size={20} /></button>
         </div>
-        <button onClick={startNewThread} className="btn-cta mt-6 h-12 w-full text-base">
+        <button onClick={startNewThread} className="btn-primary mt-6 h-12 w-full text-base">
           <Plus size={20} strokeWidth={2.5} /> Cuộc trò chuyện mới
         </button>
         <div className="mt-7 min-h-0 flex-1 overflow-y-auto">
@@ -421,7 +421,7 @@ function App() {
       {mobileNav && <button className="fixed inset-0 z-20 bg-navy/40 lg:hidden" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center justify-between border-b border-line bg-white px-4 py-3 lg:hidden">
+        <header className="flex items-center justify-between border-b border-line bg-white px-4 py-4 lg:hidden">
           <img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[150px]" />
           <button className="icon-button" onClick={() => setMobileNav(true)} aria-label="Mở menu"><Menu size={22} /></button>
         </header>
@@ -540,7 +540,7 @@ function Brand() {
   return (
     <div className="min-w-0">
       <img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[200px]" />
-      <p className="mt-2 text-base font-bold text-navy">Trợ lý nội bộ</p>
+      <p className="mt-5 text-base font-bold text-navy">Trợ lý nội bộ</p>
     </div>
   )
 }

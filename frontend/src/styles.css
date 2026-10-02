@@ -14,6 +14,8 @@ button, select, input, textarea { font-family: inherit; font-size: 16px; }
 
   /* Nút CTA chính: nền vàng, chữ Navy — không dùng chữ trắng trên nền vàng. */
   .btn-cta { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-yellow px-5 font-bold text-navy transition hover:bg-brand-yellow-dark focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/25 disabled:cursor-not-allowed disabled:opacity-50; }
+  /* Nút chính thông thường: nền Navy. Mỗi màn hình chỉ 1 nút vàng (CTA chính). */
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-navy px-5 font-bold text-white transition hover:bg-navy-dark focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/25 disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-outline { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-5 font-semibold text-navy transition hover:border-navy/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/20 disabled:cursor-not-allowed disabled:opacity-55; }
   .icon-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-white text-navy transition hover:bg-surface focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/20; }
 
