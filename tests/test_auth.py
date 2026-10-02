@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import base64
 import json
 
-from app.api.routes import _require_verified_company_user, _viewer_department_role, auth_config, require_user
+from app.api.routes import _require_verified_company_user, _viewer_department_role, auth_config, require_user, require_widget_key
 from app.services.auth_service import AuthError, AuthService, is_public_auth_key
 from app.services.employee_directory_service import EmployeeDirectoryService
 
@@ -48,6 +48,36 @@ def test_auth_config_does_not_expose_a_secret_key():
     ))
 
     assert config == {"enabled": False, "supabase_url": None, "supabase_anon_key": None}
+
+
+class FakeWidgetKeys:
+    def __init__(self, record=None):
+        self.record = record
+        self.touched = None
+
+    def get_active_key(self, key):
+        return self.record if key == "vas_test" else None
+
+    def touch_last_used(self, key_id):
+        self.touched = key_id
+
+
+def test_widget_key_accepts_active_key_without_origin_header():
+    keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "https://os.truongvietanh.com"})
+
+    record = require_widget_key("vas_test", None, keys)
+
+    assert record["id"] == "key-1"
+    assert keys.touched == "key-1"
+
+
+def test_widget_key_rejects_wrong_origin():
+    keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "https://os.truongvietanh.com"})
+
+    with pytest.raises(HTTPException) as error:
+        require_widget_key("vas_test", "https://other.example.com", keys)
+
+    assert error.value.status_code == 403
 
 
 def test_directory_normalizes_email_and_selects_only_active_profile_fields():

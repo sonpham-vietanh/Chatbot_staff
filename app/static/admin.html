@@ -118,6 +118,15 @@
   .drop-zone:hover { border-color: #b7c4bd; }
   .drop-zone.drag { border-color: var(--teal); background: rgba(18,109,106,.06); color: var(--teal-dark); }
   .drop-zone small { display: block; margin-top: 6px; color: #9aa7a4; }
+  .integration-card { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(18,109,106,.035); }
+  .integration-card h3 { margin: 0; font: 600 15px Georgia, 'Times New Roman', serif; }
+  .integration-card p { margin: 7px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .code-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+  .code-row textarea { flex: 1; min-width: 0; margin: 0 !important; min-height: 42px !important; resize: vertical; }
+  .code-row .btn { flex-shrink: 0; align-self: flex-start; }
+  .integration-note { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--yellow); background: #fff9e8; color: #6f5b22; font-size: 11.5px; line-height: 1.5; }
+  .key-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 11.5px; }
+  .key-meta strong { color: var(--ink); }
 </style>
 </head>
 <body>
@@ -557,6 +566,29 @@ Content-Type: application/json
 {"question":"Tôi cần xin nghỉ phép trước bao lâu?","history":[]}`;
 }
 
+function widgetResponseSnippet() {
+  return `{
+  "answer": "...",
+  "grounded": true,
+  "citations": []
+}`;
+}
+
+function widgetRequestSnippet() {
+  return `{
+  "question": "Nội dung người dùng hỏi",
+  "history": []
+}`;
+}
+
+function copyText(value, message = "Đã copy") {
+  navigator.clipboard?.writeText(value).then(() => toast(message)).catch(() => toast("Không thể copy tự động, hãy bôi đen và copy.", true));
+}
+
+function copyButton(value, label = "Copy") {
+  return `<button class="btn secondary small" type="button" data-copy="${escapeHtml(value)}">${label}</button>`;
+}
+
 async function showApiKeys() {
   currentId = null;
   renderList();
@@ -588,19 +620,30 @@ async function renderApiKeys() {
           <button class="btn danger small" data-delete="${k.id}">Xoá</button>
         </div>
       </div>
-      <p style="margin:8px 0 0;font-size:11.5px;color:var(--muted)">Domain được phép nhúng: <strong>${escapeHtml(k.allowed_origin)}</strong> · Tạo lúc ${new Date(k.created_at).toLocaleString('vi-VN')}${k.last_used_at ? ` · Dùng gần nhất ${new Date(k.last_used_at).toLocaleString('vi-VN')}` : ''}</p>
-      <label style="margin-top:10px">Mã nhúng (copy nguyên đoạn dán vào trang kia)</label>
-      <textarea readonly style="min-height:70px;font-size:11.5px" onclick="this.select()">${escapeHtml(embedSnippet(k.key))}</textarea>
-      <label style="margin-top:10px">API server-to-server (giữ key ở backend của trang kia)</label>
-      <textarea readonly style="min-height:120px;font-size:11.5px" onclick="this.select()">${escapeHtml(widgetApiSnippet(k.key))}</textarea>
+      <div class="key-meta"><span>Domain: <strong>${escapeHtml(k.allowed_origin)}</strong></span><span>Tạo: ${new Date(k.created_at).toLocaleString('vi-VN')}</span>${k.last_used_at ? `<span>Dùng gần nhất: ${new Date(k.last_used_at).toLocaleString('vi-VN')}</span>` : ''}</div>
+      <div class="integration-card">
+        <h3>API cho giao diện Major OS (khuyến nghị)</h3>
+        <label>Endpoint</label>
+        <div class="code-row"><textarea readonly rows="1">${escapeHtml(`${window.location.origin}/api/widget/chat`)}</textarea>${copyButton(`${window.location.origin}/api/widget/chat`)}</div>
+        <label>Method</label>
+        <div class="code-row"><textarea readonly rows="1">POST</textarea>${copyButton("POST")}</div>
+        <label>Header</label>
+        <div class="code-row"><textarea readonly rows="1">X-Widget-Key: ${escapeHtml(k.key)}</textarea>${copyButton(`X-Widget-Key: ${k.key}`)}</div>
+        <label>Request body</label>
+        <div class="code-row"><textarea readonly rows="4">${escapeHtml(widgetRequestSnippet())}</textarea>${copyButton(widgetRequestSnippet())}</div>
+        <label>Response thành công</label>
+        <div class="code-row"><textarea readonly rows="5">${escapeHtml(widgetResponseSnippet())}</textarea>${copyButton(widgetResponseSnippet())}</div>
+        <div class="integration-note">Giữ key ở backend Major OS, không đưa vào frontend.</div>
+      </div>
     </div>
   `).join("") || '<p style="font-size:12.5px;color:var(--muted)">Chưa có API key nào.</p>';
 
   document.getElementById("editor").innerHTML = `
     <label>Tên trang nhúng</label>
     <input id="newKeyLabel" placeholder="Vd: Intranet phòng HR">
-    <label>Domain được phép nhúng (chỉ domain này mới hiển thị được, vd https://intranet.truongvietanh.com)</label>
-    <input id="newKeyOrigin" placeholder="https://...">
+    <label>Domain của giao diện đối tác (vd https://os.truongvietanh.com)</label>
+    <input id="newKeyOrigin" placeholder="https://os.truongvietanh.com" inputmode="url">
+    <p style="margin:7px 0 0;color:var(--muted);font-size:11.5px;line-height:1.5">Nhập đúng origin gồm giao thức và domain, không thêm đường dẫn phía sau. Key dùng cho API backend; domain này cũng là domain được phép dùng iframe.</p>
     <div class="actions"><button class="btn" id="createKeyBtn">Tạo API key</button></div>
     <div style="margin-top:22px">${rows}</div>
   `;
@@ -610,6 +653,14 @@ async function renderApiKeys() {
     const allowed_origin = document.getElementById("newKeyOrigin").value.trim();
     if (!label || !allowed_origin) { toast("Cần nhập tên và domain.", true); return; }
     try {
+      const url = new URL(allowed_origin);
+      if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' && url.pathname !== '') throw new Error();
+      document.getElementById("newKeyOrigin").value = url.origin;
+    } catch {
+      toast("Domain phải có dạng https://os.truongvietanh.com và không có đường dẫn phía sau.", true);
+      return;
+    }
+    try {
       await api("/api-keys", { method: "POST", body: JSON.stringify({ label, allowed_origin }) });
       toast("Đã tạo API key.");
       await renderApiKeys();
@@ -617,6 +668,9 @@ async function renderApiKeys() {
       if (error.message !== "unauthorized") toast(error.message, true);
     }
   };
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.onclick = () => copyText(button.dataset.copy);
+  });
   document.querySelectorAll("[data-revoke]").forEach((btn) => {
     btn.onclick = async () => {
       try {
