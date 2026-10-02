@@ -162,7 +162,27 @@ Có 2 đường ghi dữ liệu vào wiki:
 - `GET /api/debug/search?q=` — xem chunk và score được retrieve
 - `GET|POST|PUT|DELETE /api/admin/notes*`, `POST /api/admin/upload` — quản trị note (cần `X-Admin-Token`)
 - `GET|POST|DELETE /api/admin/api-keys*` — quản lý API key cho widget chat nhúng ngoài
+- `POST /api/widget/chat` — endpoint server-to-server cho giao diện đối tác; gửi `X-Widget-Key`, không cần đăng nhập Supabase lần hai
 - `GET /api/admin/analytics` — thống kê câu hỏi/nguồn được trích dẫn nhiều nhất
+
+### Tích hợp chatbot vào giao diện khác
+
+Trong `/admin` → **API nhúng**, tạo một key với label và domain của ứng dụng đối tác. Key này có thể dùng theo hai cách:
+
+- **Iframe**: copy đoạn iframe do Admin sinh ra. Người dùng trong iframe vẫn cần đăng nhập chatbot.
+- **Server-to-server**: backend của ứng dụng đối tác gọi `POST /api/widget/chat` với header `X-Widget-Key`. Cách này dùng phiên đăng nhập Google của ứng dụng đối tác, nên người dùng không phải đăng nhập chatbot lần hai.
+
+Ví dụ request server-to-server:
+
+```http
+POST https://staffbot.vietanh.org/api/widget/chat
+X-Widget-Key: vas_...
+Content-Type: application/json
+
+{"question":"Tôi cần xin nghỉ phép trước bao lâu?","history":[]}
+```
+
+Không đặt `X-Widget-Key` trong JavaScript chạy ở trình duyệt. Key phải nằm trong biến môi trường/backend của ứng dụng đối tác; frontend chỉ nhận lại `answer` và `citations` từ backend đó.
 
 ## Deploy (Docker / Coolify)
 

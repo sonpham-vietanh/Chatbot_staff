@@ -549,6 +549,14 @@ function embedSnippet(key) {
   return `<iframe src="${src}" style="width:100%;height:640px;border:0;border-radius:12px;" title="Viet Anh Staff Assistant" allow="clipboard-write"></iframe>`;
 }
 
+function widgetApiSnippet(key) {
+  return `POST ${window.location.origin}/api/widget/chat
+X-Widget-Key: ${key}
+Content-Type: application/json
+
+{"question":"Tôi cần xin nghỉ phép trước bao lâu?","history":[]}`;
+}
+
 async function showApiKeys() {
   currentId = null;
   renderList();
@@ -583,6 +591,8 @@ async function renderApiKeys() {
       <p style="margin:8px 0 0;font-size:11.5px;color:var(--muted)">Domain được phép nhúng: <strong>${escapeHtml(k.allowed_origin)}</strong> · Tạo lúc ${new Date(k.created_at).toLocaleString('vi-VN')}${k.last_used_at ? ` · Dùng gần nhất ${new Date(k.last_used_at).toLocaleString('vi-VN')}` : ''}</p>
       <label style="margin-top:10px">Mã nhúng (copy nguyên đoạn dán vào trang kia)</label>
       <textarea readonly style="min-height:70px;font-size:11.5px" onclick="this.select()">${escapeHtml(embedSnippet(k.key))}</textarea>
+      <label style="margin-top:10px">API server-to-server (giữ key ở backend của trang kia)</label>
+      <textarea readonly style="min-height:120px;font-size:11.5px" onclick="this.select()">${escapeHtml(widgetApiSnippet(k.key))}</textarea>
     </div>
   `).join("") || '<p style="font-size:12.5px;color:var(--muted)">Chưa có API key nào.</p>';
 

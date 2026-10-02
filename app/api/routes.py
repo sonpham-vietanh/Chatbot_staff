@@ -59,6 +59,22 @@ def get_employee_directory(rag: RAGService = Depends(get_rag_service)) -> Employ
     return EmployeeDirectoryService(rag.supabase)
 
 
+def require_widget_key(
+    x_widget_key: str | None = Header(default=None),
+    origin: str | None = Header(default=None),
+    api_keys: ApiKeyService = Depends(get_api_key_service),
+) -> dict[str, Any]:
+    if not x_widget_key:
+        raise HTTPException(status_code=401, detail="Thiếu X-Widget-Key")
+    record = api_keys.get_active_key(x_widget_key)
+    if not record:
+        raise HTTPException(status_code=401, detail="Widget key không hợp lệ hoặc đã bị thu hồi")
+    if origin and origin.rstrip("/") != record["allowed_origin"]:
+        raise HTTPException(status_code=403, detail="Origin không được phép dùng widget key này")
+    api_keys.touch_last_used(record["id"])
+    return record
+
+
 def require_admin(
     settings: Settings = Depends(get_settings),
     x_admin_token: str | None = Header(default=None),
@@ -313,6 +329,31 @@ def chat_staff(
     )
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
     return ChatResponse(**result, thread_id=thread_id)
+
+
+@router.post("/widget/chat", response_model=ChatResponse)
+def widget_chat(
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
+    _widget: dict[str, Any] = Depends(require_widget_key),
+    rag: RAGService = Depends(get_rag_service),
+) -> ChatResponse:
+    """Server-to-server chat for an approved partner UI; it does not require a second login."""
+    try:
+        result = rag.chat(
+            request.question,
+            [turn.model_dump() for turn in request.history],
+        )
+    except Exception as error:
+        message = str(error)
+        if "API_KEY_INVALID" in message or "API key not valid" in message:
+            raise HTTPException(
+                status_code=502,
+                detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
+            ) from error
+        raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
+    background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
+    return ChatResponse(**result)
 
 
 @router.get("/admin/notes", dependencies=[Depends(require_admin)])
