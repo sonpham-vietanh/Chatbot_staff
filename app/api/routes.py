@@ -1,4 +1,5 @@
 from functools import lru_cache
+import logging
 import secrets
 from typing import Any
 import uuid
@@ -22,6 +23,7 @@ from app.models.schemas import (
     ThreadMessage,
     ThreadSummary,
 )
+from app.rag.answer_format import to_plain_text
 from app.services.admin_service import AdminService, NoteNotFoundError
 from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService, normalize_origin
 from app.services.auth_service import AuthError, AuthService, is_public_auth_key
@@ -29,6 +31,8 @@ from app.services.chat_history_service import ChatHistoryService
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.rag_service import RAGService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -67,7 +71,12 @@ def require_widget_key(
 ) -> dict[str, Any]:
     if not x_widget_key:
         raise HTTPException(status_code=401, detail="Thiếu X-Widget-Key")
-    record = api_keys.get_active_key(x_widget_key)
+    try:
+        record = api_keys.get_active_key(x_widget_key)
+    except Exception as error:
+        # Database tạm lỗi: trả JSON 503 có "detail" như mọi lỗi khác, không để thành 500 dạng text thô.
+        logger.warning("Không tra được widget key", exc_info=True)
+        raise HTTPException(status_code=503, detail="Dịch vụ tạm thời không khả dụng, vui lòng thử lại sau.") from error
     if not record:
         raise HTTPException(status_code=401, detail="Widget key không hợp lệ hoặc đã bị thu hồi")
     allowed_origin = normalize_origin(record["allowed_origin"])
@@ -84,7 +93,8 @@ def require_admin(
 ) -> None:
     if not settings.admin_token:
         raise HTTPException(status_code=503, detail="ADMIN_TOKEN chưa được cấu hình trong .env")
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
+    # So sánh trên bytes: compare_digest với str ném TypeError (-> 500) nếu token gửi lên có ký tự ngoài ASCII.
+    if not x_admin_token or not secrets.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
         raise HTTPException(status_code=401, detail="Admin token không hợp lệ")
 
 
@@ -355,6 +365,9 @@ def widget_chat(
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
         raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
+    # Bên tích hợp hiển thị nguyên văn câu trả lời nên phải là văn bản thuần — giao diện
+    # của mình (chat-staff) mới tự render **in đậm**, giao diện đối tác thì không.
+    result["answer"] = to_plain_text(result["answer"])
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
     return ChatResponse(**result)
 
@@ -430,17 +443,18 @@ def admin_create_api_key(
 
 
 @router.post("/admin/api-keys/{key_id}/revoke", dependencies=[Depends(require_admin)])
-def admin_revoke_api_key(key_id: str, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
+def admin_revoke_api_key(key_id: uuid.UUID, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
+    # key_id kiểu UUID: id sai định dạng bị trả 422 ở đây thay vì thành lỗi 400 của PostgREST -> 500.
     try:
-        api_keys.revoke_key(key_id)
+        api_keys.revoke_key(str(key_id))
     except ApiKeyNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return {"status": "revoked"}
 
 
 @router.delete("/admin/api-keys/{key_id}", dependencies=[Depends(require_admin)])
-def admin_delete_api_key(key_id: str, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
-    api_keys.delete_key(key_id)
+def admin_delete_api_key(key_id: uuid.UUID, api_keys: ApiKeyService = Depends(get_api_key_service)) -> dict[str, str]:
+    api_keys.delete_key(str(key_id))
     return {"status": "deleted"}
 
 

@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.services.api_key_service import normalize_origin
 
@@ -22,7 +22,8 @@ class ChatTurn(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(min_length=2, max_length=2000)
+    # Cắt khoảng trắng 2 đầu TRƯỚC khi kiểm độ dài: câu hỏi toàn dấu cách không được tới LLM.
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=2000)]
     user_department: str | None = None
     department: str | None = None
     history: list[ChatTurn] = Field(
@@ -104,7 +105,9 @@ class AnalyticsSummary(BaseModel):
 
 
 class ApiKeyCreateRequest(BaseModel):
-    label: str = Field(min_length=1, max_length=100)
+    # Khớp ràng buộc của bảng api_keys (btrim(label) dài 1..100) để nhãn toàn dấu cách bị
+    # trả 422 ở đây thay vì thành lỗi của database -> 500.
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     allowed_origin: str = Field(min_length=1, max_length=300)
 
     @field_validator("allowed_origin")

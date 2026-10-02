@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
             ingest_agent=rag.ingest_agent,
             wiki_sync=rag.wiki_sync,
             state_path=Path("data") / "vault_watcher_state.json",
+            ready_marker=rag.settings.vault_ready_marker,
         )
         watcher.start()
 
@@ -69,7 +70,12 @@ def demo_ui(embed_key: str | None = None) -> FileResponse:
     response = FileResponse(file_path)
     frame_ancestors = "'self'"
     if embed_key:
-        record = get_rag_service().api_keys.get_active_key(embed_key)
+        try:
+            record = get_rag_service().api_keys.get_active_key(embed_key)
+        except Exception:
+            # Database tạm lỗi: vẫn trả trang (chỉ là không cho nhúng), không trả 500.
+            logging.getLogger(__name__).warning("Không tra được embed key", exc_info=True)
+            record = None
         allowed_origin = normalize_origin(record["allowed_origin"]) if record else None
         if allowed_origin:
             frame_ancestors = f"'self' {allowed_origin}"

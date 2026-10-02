@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import ipaddress
 import logging
+import re
 import secrets
 from typing import Any
 from urllib.parse import urlsplit
@@ -9,6 +11,8 @@ from app.services.supabase_client import SupabaseClient
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
+_HOSTNAME_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*")
 
 
 class ApiKeyNotFoundError(Exception):
@@ -27,12 +31,21 @@ def normalize_origin(value: str | None) -> str | None:
     except ValueError:
         return None
     scheme = parts.scheme.lower()
-    if scheme not in DEFAULT_PORTS or not parts.hostname:
+    host = parts.hostname
+    if scheme not in DEFAULT_PORTS or not host or port == 0:
         return None
     if parts.path not in ("", "/") or parts.query or parts.fragment or parts.username:
         return None
-    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
-    return f"{scheme}://{host}" + (f":{port}" if port and port != DEFAULT_PORTS[scheme] else "")
+    if ":" in host:
+        try:
+            host = f"[{ipaddress.IPv6Address(host).compressed}]"
+        except ValueError:
+            return None
+    elif not _HOSTNAME.fullmatch(host):
+        # Giá trị này đi thẳng vào header CSP frame-ancestors — ký tự lạ (dấu cách, ';',
+        # '*', dấu nháy...) sẽ mở cho mọi trang nhúng hoặc chèn thêm chỉ thị CSP.
+        return None
+    return f"{scheme}://{host}" + (f":{port}" if port is not None and port != DEFAULT_PORTS[scheme] else "")
 
 
 class ApiKeyService:

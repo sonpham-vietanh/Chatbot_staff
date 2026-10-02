@@ -1,8 +1,11 @@
+import logging
 import re
+import unicodedata
 from typing import Any
 
 from app.config import Settings
 from app.models.schemas import MAX_HISTORY_ITEMS
+from app.rag.answer_format import clean_markdown, to_plain_text
 from app.rag.embeddings import build_embedding_provider
 from app.rag.prompt_builder import FALLBACK_ANSWER
 from app.rag.vector_store import VectorStore
@@ -16,7 +19,22 @@ from app.services.llm import build_llm_provider
 from app.services.supabase_client import SupabaseClient
 from app.services.wiki_sync_service import WikiSyncService
 
-CITATION_LINE_PATTERN = re.compile(r"^\s*\[Nguồn:\s*(.+?)\]?\s*$", re.MULTILINE)
+logger = logging.getLogger(__name__)
+
+# Phần mở của thẻ nguồn. Mẫu chuẩn là "[Nguồn: ...]", nhưng model đôi khi viết thường/viết
+# hoa, thêm khoảng trắng hoặc bọc đậm ("[**Nguồn:** ...]") — đều phải nhận ra để không lọt
+# nguyên văn vào câu trả lời.
+#
+# Mỗi đoạn lặp trong mẫu dùng MỘT lớp ký tự duy nhất ([ \t*]*), không xếp chồng nhiều \s* cạnh
+# nhau: bản trước viết "\s*\**\s*" làm regex lùi theo cấp số mũ với dòng "[" + vài trăm dấu
+# cách (1 request treo 50 giây). Phần còn lại của việc tách thẻ làm bằng quét ký tự tuyến tính.
+CITATION_OPEN = re.compile(r"\[[ \t*]*Nguồn[ \t*]*:[ \t*]*", re.IGNORECASE)
+# Ký tự chỉ là "vỏ" còn sót sau khi gỡ thẻ: bullet, số thứ tự, đậm/nghiêng, ngoặc, dấu câu.
+DECORATION_CHARS = " \t*_`.,;:-•+>()[]“”\"'"
+SOURCE_LABEL_LINE = re.compile(r"^[\s*_#>-]*(?:các\s+)?nguồn[^:\n]{0,30}:[\s*_]*$", re.IGNORECASE)
+CITATION_TRAILING_CHARS = " \t*_`.,;"
+# Thẻ bị cắt dở ở cuối câu trả lời do hết token: "[", "[Ng", "[Nguồn"...
+TRUNCATED_OPENERS = {"", "ng", "ngu", "nguồ", "nguồn"}
 VERSION_PATTERN = re.compile(r"^v?\d+(\.\d+)*$", re.IGNORECASE)
 
 
@@ -65,18 +83,29 @@ class AdvancedRAGPipeline:
         # Chỉ đưa CONTEXT vào prompt khi retrieval thực sự vượt ngưỡng tin cậy; nếu không,
         # để LLM tự quyết định giữa trả lời giao tiếp thông thường hoặc từ chối theo prompt guardrail.
         context_for_llm = results if grounded_seeds else []
-        answer = self.llm.answer(question, context_for_llm, history)
-        if answer.strip() == FALLBACK_ANSWER:
-            self.admin.create_note(
-                title=f"[CẦN BỔ SUNG] {question}",
-                department=asker_department or "Unassigned",
-                content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
-                status="draft",
-                created_by="AI_Bot",
-            )
+        # Chuẩn hoá Unicode về dạng dựng sẵn (NFC): model đôi khi trả tiếng Việt dạng tổ hợp,
+        # khi đó "Nguồn"/câu từ chối không khớp chuỗi so sánh dù nhìn giống hệt.
+        answer = unicodedata.normalize("NFC", self.llm.answer(question, context_for_llm, history))
+        # Dòng [Nguồn: ...] luôn bị tách khỏi text hiển thị (citation trả về ở trường riêng),
+        # và định dạng luôn được làm sạch ở đây — không để từng giao diện tự xử lý.
+        display_answer = clean_markdown(self._strip_citation_tags(answer))
+        # So khớp trên văn bản thuần: model đôi khi bọc câu từ chối trong **...** hoặc kèm
+        # dòng nguồn; rỗng (chỉ có dòng nguồn) cũng coi như không trả lời được.
+        if to_plain_text(display_answer) in ("", FALLBACK_ANSWER):
+            try:
+                self.admin.create_note(
+                    title=f"[CẦN BỔ SUNG] {question}",
+                    department=asker_department or "Unassigned",
+                    content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
+                    status="draft",
+                    created_by="AI_Bot",
+                )
+            except Exception:
+                # Note "cần bổ sung" chỉ là ghi nhận cho HR — ghi lỗi thì người hỏi vẫn phải
+                # nhận được câu từ chối bình thường, không phải lỗi 502.
+                logger.warning("Không tạo được note [CẦN BỔ SUNG] cho câu hỏi: %s", question, exc_info=True)
             return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
         citations = self._parse_citations(answer, results) if grounded_seeds else []
-        display_answer = self._strip_citation_tags(answer) if citations else answer
         return {"answer": display_answer, "grounded": bool(citations), "citations": citations}
 
     @staticmethod
@@ -89,22 +118,89 @@ class AdvancedRAGPipeline:
         return f"{last_user_turn} {question}" if last_user_turn else question
 
     @staticmethod
-    def _strip_citation_tags(answer: str) -> str:
-        """Bỏ dòng [Nguồn: ...] khỏi text hiển thị cho người dùng — citation đã hiển thị
-        riêng ở phần Sources trên giao diện, không cần lặp lại trong câu trả lời."""
-        without_tags = CITATION_LINE_PATTERN.sub("", answer)
-        lines = [line.rstrip() for line in without_tags.splitlines()]
+    def _split_citation_tags(answer: str) -> tuple[str, list[str]]:
+        """Tách câu trả lời thành (text hiển thị không còn thẻ nguồn, nội dung thô từng thẻ).
+
+        Mẫu chuẩn là mỗi thẻ 1 dòng riêng ở cuối, nhưng model không phải lúc nào cũng theo:
+        thẻ nằm cuối câu, giữa câu, trong bullet, bọc **đậm**, thiếu ']', 2 thẻ 1 dòng...
+        Chỉ gỡ đúng phần thẻ — chữ thật nằm cùng dòng phải được giữ lại."""
+        def tag_end(line: str, start: int) -> int:
+            """Vị trí ']' đóng thẻ, đếm ngoặc lồng nhau để heading kiểu "Mục [1]" không cắt
+            thẻ giữa chừng, và "[Phụ lục 2]" đứng sau thẻ không bị nuốt vào thẻ. -1 = thiếu ']'."""
+            depth = 0
+            for index in range(start, len(line)):
+                if line[index] == "[":
+                    depth += 1
+                elif line[index] == "]":
+                    if depth == 0:
+                        return index
+                    depth -= 1
+            return -1
+
+        lines = answer.splitlines()
+        kept: list[str] = []
+        raws: list[str] = []
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            index += 1
+            opener = CITATION_OPEN.search(line)
+            if not opener:
+                kept.append(line.rstrip())
+                continue
+            pieces: list[str] = []
+            position = 0
+            while opener:
+                pieces.append(line[position:opener.start()].rstrip(" \t"))
+                end = tag_end(line, opener.end())
+                if end == -1 and index < len(lines) and "]" in lines[index] and not CITATION_OPEN.search(lines[index]):
+                    # Thẻ bị xuống dòng giữa chừng ("[Nguồn:\nA > B > 0.1]"): nối dòng kế vào.
+                    line = f"{line.rstrip()} {lines[index].strip()}"
+                    index += 1
+                    end = tag_end(line, opener.end())
+                if end == -1:  # thiếu ']': thẻ chạy tới hết dòng
+                    raws.append(line[opener.end():].rstrip(CITATION_TRAILING_CHARS))
+                    position = len(line)
+                    break
+                raws.append(line[opener.end():end])
+                position = end + 1
+                opener = CITATION_OPEN.search(line, position)
+            rest = ("".join(pieces) + line[position:]).rstrip()
+            if not pieces[0].strip():
+                rest = rest.lstrip()
+            core = rest.strip(DECORATION_CHARS)
+            if not core or core.isdigit():  # chỉ còn "- ", "1. ", "**", "()"... -> bỏ cả dòng
+                continue
+            kept.append(rest)
+
+        if kept:
+            # Thẻ bị cắt dở do hết token ở cuối câu trả lời.
+            last = kept[-1]
+            bracket = last.rfind("[")
+            if bracket != -1 and last[bracket + 1:].strip(" \t*").casefold() in TRUNCATED_OPENERS:
+                kept[-1] = last[:bracket].rstrip()
         cleaned: list[str] = []
-        for line in lines:
+        for line in kept:
             if line or (cleaned and cleaned[-1]):
                 cleaned.append(line)
-        return "\n".join(cleaned).strip()
+        while cleaned and not cleaned[-1]:
+            cleaned.pop()
+        if raws:
+            # Nhãn giới thiệu danh sách nguồn ("**Nguồn:**", "Các nguồn đã dùng:") trơ trọi ở cuối.
+            while cleaned and (not cleaned[-1] or SOURCE_LABEL_LINE.match(cleaned[-1])):
+                cleaned.pop()
+        return "\n".join(cleaned).strip(), raws
+
+    @staticmethod
+    def _strip_citation_tags(answer: str) -> str:
+        """Bỏ thẻ [Nguồn: ...] khỏi text hiển thị cho người dùng — citation đã hiển thị
+        riêng ở phần Sources trên giao diện, không cần lặp lại trong câu trả lời."""
+        return AdvancedRAGPipeline._split_citation_tags(answer)[0]
 
     @staticmethod
     def _parse_citations(answer: str, results: list[dict[str, Any]] | None = None) -> list[dict[str, str]]:
-        """Lấy citation trực tiếp từ dòng [Nguồn: ...] mà LLM thực sự trích trong câu trả lời,
+        """Lấy citation trực tiếp từ thẻ [Nguồn: ...] mà LLM thực sự trích trong câu trả lời,
         tránh gắn nhầm nguồn không liên quan (vd. câu chào hỏi trùng ngẫu nhiên với top-k).
-        Parse theo dòng, không bắt buộc dấu ']' đóng chuẩn vì model đôi khi bỏ sót.
 
         Heading của chunk là đường dẫn nhiều cấp nối bằng ' > ' (xem chunking.py) nên không
         tách heading/version theo vị trí được: ưu tiên khớp với metadata của chính các chunk
@@ -120,21 +216,30 @@ class AdvancedRAGPipeline:
                 heading,
                 str(metadata.get("version") or "unknown"),
             ))
+        pieces: list[str] = []
+        for raw in AdvancedRAGPipeline._split_citation_tags(answer)[1]:
+            # "[Nguồn: A > h > 0.1; B > h > 1.0]" — 2 nguồn gộp trong 1 thẻ. Chỉ tách khi MỌI
+            # phần đều kết thúc bằng số phiên bản; dấu ";" nằm trong tên mục ("Lương; thưởng")
+            # thì không phải ranh giới giữa 2 nguồn.
+            split = raw.split(";")
+            is_merged = all(VERSION_PATTERN.match(piece.rsplit(">", 1)[-1].strip(" \t*`")) for piece in split)
+            pieces.extend(split if is_merged else [raw])
         unique: dict[tuple[str, str, str], dict[str, str]] = {}
-        for raw in CITATION_LINE_PATTERN.findall(answer):
-            parts = [part.strip() for part in raw.split(">")]
+        for piece in pieces:
+            parts = [part.strip(" \t*`") for part in piece.split(">")]
             if not parts or not parts[0]:
                 continue
             source, rest = parts[0], [part for part in parts[1:] if part]
             cited = " > ".join(rest)
             match = next(
-                (entry for entry in known if entry[0] == source and cited in (entry[1], f"{entry[1]} > {entry[3]}")),
+                (entry for entry in known if entry[0] == source
+                 and cited in (entry[1], f"{entry[1]} > {entry[3]}", f"{entry[1]} > v{entry[3]}")),
                 None,
             )
             if match:
                 heading, version = match[2], match[3]
-            elif len(rest) > 1 and VERSION_PATTERN.match(rest[-1]):
-                heading, version = " > ".join(rest[:-1]), rest[-1]
+            elif rest and VERSION_PATTERN.match(rest[-1]):
+                heading, version = " > ".join(rest[:-1]) or "Nội dung chung", rest[-1].lstrip("vV")
             else:
                 heading, version = cited or "Nội dung chung", "unknown"
             citation = {"source": source, "heading": heading, "version": version}
