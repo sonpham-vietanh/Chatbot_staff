@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -56,6 +57,11 @@ Máy chưa có cache trình duyệt (lần đầu mở) phải tải nguyên fil
 
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
+# Logo + favicon chính thức (Brand Guideline Trường Việt Anh) dùng chung cho giao diện chat
+# React, trang /admin và trang dự phòng — 1 bản duy nhất trong app/static/brand. Bảng
+# mimetypes của Python không phải máy nào cũng có .webp (Windows trả octet-stream).
+mimetypes.add_type("image/webp", ".webp")
+app.mount("/brand", StaticFiles(directory=Path(__file__).parent / "static" / "brand"), name="brand")
 
 
 @app.get("/", include_in_schema=False)

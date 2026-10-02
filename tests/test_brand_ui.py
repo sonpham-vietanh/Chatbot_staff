@@ -1,0 +1,64 @@
+"""Giữ giao diện đúng Brand Guideline Trường Việt Anh v2.0 (docs/Brand-Guideline-Viet-Anh-MASTER.docx):
+Navy #26275D + Vàng #F9DD0E, font Be Vietnam Pro (chỉ sans-serif), cỡ chữ tối thiểu 16px."""
+import re
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+ROOT = Path(__file__).resolve().parents[1]
+HTML_PAGES = [ROOT / "app" / "static" / "admin.html", ROOT / "app" / "static" / "index.html"]
+FRONTEND_SOURCES = [ROOT / "frontend" / "src" / "App.jsx", ROOT / "frontend" / "src" / "styles.css",
+                    ROOT / "frontend" / "index.html", ROOT / "frontend" / "tailwind.config.js"]
+SERIF_FONTS = re.compile(r"Georgia|Times New Roman|DM Serif|Courier|font-display", re.IGNORECASE)
+OLD_PALETTE = re.compile(r"#(?:0D2B55|F07D00|123d52|126d6a|0c4d4b|f4c95d|e9795c|e9785b|f7f5ef)\b", re.IGNORECASE)
+
+
+def _font_sizes_px(text: str) -> list[float]:
+    return [float(value) for value in re.findall(r"font(?:-size)?:\s*(?:[0-9]+\s+)?([0-9.]+)px", text)]
+
+
+@pytest.mark.parametrize("page", HTML_PAGES, ids=lambda path: path.name)
+def test_static_pages_follow_brand_typography_and_colors(page):
+    text = page.read_text(encoding="utf-8")
+
+    assert "Be Vietnam Pro" in text
+    assert "#26275D" in text
+    assert not SERIF_FONTS.search(text)
+    assert not OLD_PALETTE.search(text)
+    too_small = [size for size in _font_sizes_px(text) if size < 16]
+    assert not too_small, f"cỡ chữ nhỏ hơn 16px: {too_small}"
+
+
+@pytest.mark.parametrize("source", FRONTEND_SOURCES, ids=lambda path: path.name)
+def test_react_frontend_uses_brand_tokens_only(source):
+    text = source.read_text(encoding="utf-8")
+
+    assert not OLD_PALETTE.search(text)
+    assert not re.search(r"font-family:[^;]*serif", text.replace("sans-serif", ""))
+    if source.suffix == ".jsx":
+        # text-xs (12px) / text-sm (14px) / text-[<16px] đều dưới mức tối thiểu 16px.
+        assert not re.search(r"\btext-(?:xs|sm)\b|\btext-\[(?:[0-9]|1[0-5])(?:\.[0-9]+)?px\]", text)
+        assert "font-display" not in text
+
+
+def test_tailwind_theme_matches_brand_palette():
+    config = (ROOT / "frontend" / "tailwind.config.js").read_text(encoding="utf-8")
+
+    for hex_code in ("#26275D", "#F9DD0E", "#F0F4F8", "#1A1A2E", "#E2E8F0"):
+        assert hex_code in config
+    assert '"Be Vietnam Pro"' in config
+
+
+def test_brand_assets_are_served_for_every_page():
+    client = TestClient(app)  # không dùng "with": lifespan (VaultWatcher) không chạy
+
+    logo = client.get("/brand/logo-vietanh.webp")
+    favicon = client.get("/brand/favicon.png")
+
+    assert logo.status_code == 200 and logo.headers["content-type"] == "image/webp"
+    assert favicon.status_code == 200 and favicon.headers["content-type"] == "image/png"
+    admin = client.get("/admin").text
+    assert "/brand/logo-vietanh.webp" in admin and "/brand/favicon.png" in admin

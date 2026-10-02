@@ -3,150 +3,178 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viet Anh Staff Assistant — Admin</title>
+<meta name="theme-color" content="#26275D">
+<title>Quản trị · Trợ lý nội bộ Trường Việt Anh</title>
+<link rel="icon" type="image/png" href="/brand/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
+  /* Brand Guideline Trường Việt Anh v2.0 (docs/Brand-Guideline-Viet-Anh-MASTER.docx):
+     Navy #26275D chủ đạo, Vàng #F9DD0E chỉ cho CTA (chữ trên nền vàng luôn là Navy),
+     nền #F0F4F8, chữ #1A1A2E, viền #E2E8F0; font Be Vietnam Pro, chỉ sans-serif,
+     cỡ chữ tối thiểu 16px — không thêm font-size nào nhỏ hơn 16px. */
   :root {
-    --ink: #12212b; --muted: #6f7e84; --paper: #f4f1e8; --panel: #fffdf7;
-    --line: #d9ddd4; --teal: #126d6a; --teal-dark: #0c4d4b; --yellow: #f4c95d;
-    --coral: #e9785b; --shadow: 0 18px 50px rgba(27,43,43,.12);
+    --navy: #26275D; --navy-dark: #1B1C45; --navy-soft: #E9EAF3;
+    --yellow: #F9DD0E; --yellow-dark: #E5C900;
+    --surface: #F0F4F8; --panel: #FFFFFF; --ink: #1A1A2E; --muted: #555873; --line: #E2E8F0;
+    --danger: #B42318; --success: #1E7A4C;
+    --shadow: 0 1px 2px rgba(38,39,93,.06), 0 8px 24px rgba(38,39,93,.06);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; color: var(--ink); background: var(--paper); font-family: Arial, sans-serif; -webkit-font-smoothing: antialiased; }
-  button, input, select, textarea { font: inherit; }
-  h1, h2, .serif { font-family: Georgia, 'Times New Roman', serif; }
+  html { font-size: 16px; }
+  body { margin: 0; color: var(--ink); background: var(--surface); font-family: 'Be Vietnam Pro', Arial, sans-serif; font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  button, input, select, textarea { font: inherit; font-size: 16px; }
+  h1, h2, h3 { color: var(--navy); }
+  :focus-visible { outline: 3px solid rgba(38,39,93,.35); outline-offset: 2px; }
 
   /* ---- header ---- */
-  header { background: var(--teal-dark); color: #f7f3e9; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; background: var(--yellow); color: var(--teal-dark); font-weight: 800; font-family: Arial, sans-serif; font-size: 13px; border-radius: 10px 10px 10px 2px; flex-shrink: 0; }
-  header h1 { font-size: 17px; margin: 0; line-height: 1.15; font-weight: 500; }
-  header small { display: block; margin-top: 3px; color: #b9d4cb; font: 10px Arial, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 28px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 16px; min-width: 0; }
+  .brand-logo { display: block; width: 170px; height: auto; flex-shrink: 0; }
+  .brand-divider { width: 1px; align-self: stretch; background: var(--line); }
+  header h1 { font-size: 20px; margin: 0; line-height: 1.2; font-weight: 800; }
+  header small { display: block; margin-top: 2px; color: var(--muted); font-size: 16px; font-weight: 500; }
+  @media (max-width: 640px) { header { padding: 12px 16px; } .brand-divider, header .brand > div { display: none; } .brand-logo { width: 140px; } }
 
   /* ---- buttons ---- */
-  .btn { background: var(--teal); color: #fff; border: none; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; transition: background .15s, transform .1s, opacity .15s; }
-  .btn:hover { background: var(--teal-dark); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--navy); color: #fff; border: 1px solid var(--navy); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 16px; font-weight: 700; transition: background .15s, border-color .15s, transform .1s, opacity .15s; }
+  .btn:hover { background: var(--navy-dark); border-color: var(--navy-dark); }
   .btn:active { transform: scale(.98); }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .btn.secondary { background: transparent; color: var(--teal-dark); border: 1px solid var(--line); }
-  .btn.secondary:hover { background: #eef1ec; }
-  .btn.danger { background: var(--coral); }
-  .btn.danger:hover { background: #d9654a; }
-  .btn.small { padding: 7px 12px; font-size: 12px; border-radius: 7px; }
-  .btn.ghost { background: rgba(255,255,255,.1); color: #f7f3e9; border: 1px solid rgba(255,255,255,.22); }
-  .btn.ghost:hover { background: rgba(255,255,255,.18); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  /* CTA chính của trang: nền vàng, chữ Navy (không dùng chữ trắng trên nền vàng). */
+  .btn.cta { background: var(--yellow); border-color: var(--yellow); color: var(--navy); }
+  .btn.cta:hover { background: var(--yellow-dark); border-color: var(--yellow-dark); }
+  .btn.secondary { background: var(--panel); color: var(--navy); border-color: var(--line); font-weight: 600; }
+  .btn.secondary:hover { background: var(--surface); border-color: rgba(38,39,93,.35); }
+  .btn.danger { background: var(--danger); border-color: var(--danger); }
+  .btn.danger:hover { background: #912018; border-color: #912018; }
+  .btn.small { padding: 8px 14px; border-radius: 10px; }
+  .btn.ghost { background: var(--panel); color: var(--navy); border-color: var(--line); font-weight: 600; }
+  .btn.ghost:hover { background: var(--surface); }
 
   /* ---- login ---- */
-  #login { max-width: 400px; margin: 12vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 36px 32px; box-shadow: var(--shadow); }
-  #login .brand-mark { margin: 0 auto 18px; width: 46px; height: 46px; font-size: 16px; }
-  #login h2 { margin: 0 0 6px; font-size: 21px; text-align: center; font-weight: 500; }
-  #login p { margin: 0 0 22px; text-align: center; color: var(--muted); font-size: 12.5px; }
-  #login input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 12px; font-size: 14px; outline: none; transition: border-color .15s, box-shadow .15s; }
-  #login input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.12); }
-  #login .btn { width: 100%; padding: 12px; font-size: 14px; }
-  .error { color: var(--coral); font-size: 12.5px; min-height: 18px; margin-top: 10px; text-align: center; }
+  #login { max-width: 440px; margin: 10vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 36px 32px; box-shadow: var(--shadow); }
+  #login .brand-logo { width: 230px; margin: 0 auto 22px; }
+  #login h2 { margin: 0 0 6px; font-size: 28px; text-align: center; font-weight: 800; }
+  #login p { margin: 0 0 22px; text-align: center; color: var(--muted); font-size: 16px; }
+  #login input { width: 100%; height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; font-size: 16px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s; }
+  #login input:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
+  #login .btn { width: 100%; height: 48px; }
+  .error { color: var(--danger); font-size: 16px; min-height: 24px; margin-top: 10px; text-align: center; }
 
   /* ---- layout ---- */
-  main { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; display: none; }
-  .layout { display: grid; grid-template-columns: 400px minmax(0,1fr); gap: 22px; align-items: start; }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  main { max-width: 1320px; margin: 0 auto; padding: 24px 22px 60px; display: none; }
+  .layout { display: grid; grid-template-columns: 420px minmax(0,1fr); gap: 22px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; }
   .panel-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-  .panel-head strong { font-size: 14px; font-weight: 700; }
-  .panel-head select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; color: var(--ink); }
-  .panel-head-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: rgba(18,109,106,.03); }
+  .panel-head strong { font-size: 18px; font-weight: 800; color: var(--navy); }
+  .panel-head select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 16px; color: var(--ink); }
+  .panel-head-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
   .panel-head-actions .btn { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .list-search { padding: 12px 16px; border-bottom: 1px solid var(--line); background: #fffdf7; }
-  .list-search input { width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-size: 12.5px; outline: none; }
-  .list-search input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.1); }
-  .list-summary { padding: 8px 16px 0; color: var(--muted); font-size: 11px; }
+  .list-search { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .list-search input { width: 100%; min-width: 0; height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 16px; outline: none; }
+  .list-search input:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
+  .list-summary { padding: 10px 16px 0; color: var(--muted); font-size: 16px; }
 
   /* ---- note list ---- */
   #list { max-height: 72vh; overflow: auto; }
   .note-row { padding: 14px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .12s; }
   .note-row:last-child { border-bottom: none; }
-  .note-row:hover { background: rgba(18,109,106,.05); }
-  .note-row.active { background: rgba(18,109,106,.1); box-shadow: inset 3px 0 0 var(--teal); }
-  .note-row.gap-flag { box-shadow: inset 3px 0 0 var(--yellow); }
-  .note-row.gap-flag.active { box-shadow: inset 3px 0 0 var(--teal); }
+  .note-row:hover { background: var(--surface); }
+  .note-row.active { background: var(--navy-soft); box-shadow: inset 4px 0 0 var(--navy); }
+  .note-row.gap-flag { box-shadow: inset 4px 0 0 var(--yellow); }
+  .note-row.gap-flag.active { box-shadow: inset 4px 0 0 var(--navy); }
   .note-row .row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .note-row .title { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note-row .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
-  .note-row .preview { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .note-row .title { font-weight: 700; font-size: 16px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note-row .meta { color: var(--muted); font-size: 16px; margin-top: 4px; }
+  .note-row .preview { color: var(--muted); font-size: 16px; margin-top: 6px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: #ede4c8; color: #7a611f; flex-shrink: 0; }
-  .badge.approved { background: #dcefe2; color: #276a44; }
-  .badge.rejected { background: #f6dede; color: #9a2f2f; }
-  .badge.unknown { background: #e8e2cf; color: #6b5c1f; }
+  .badge { display: inline-block; padding: 2px 12px; border-radius: 999px; font-size: 16px; font-weight: 700; line-height: 1.5; background: #FFF6BF; color: #5C4D00; flex-shrink: 0; }
+  .badge.approved { background: #DCF2E5; color: #14532D; }
+  .badge.rejected { background: #FDE2E0; color: #8A1C14; }
+  .badge.unknown { background: var(--navy-soft); color: var(--navy); }
 
-  .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-size: 16px; }
 
   /* ---- editor ---- */
   #editor { padding: 22px; }
-  #editor label { display: block; font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 5px; }
+  #editor label { display: block; font-size: 16px; font-weight: 700; color: var(--navy); margin: 16px 0 6px; }
   #editor label:first-child { margin-top: 0; }
   #editor input, #editor select, #editor textarea {
-    width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff;
-    font-size: 13.5px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
+    width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
+    font-size: 16px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
   }
-  #editor input:focus, #editor select:focus, #editor textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(18,109,106,.1); }
-  #editor textarea { min-height: 360px; font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.55; resize: vertical; }
+  #editor input:focus, #editor select:focus, #editor textarea:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
+  #editor textarea { min-height: 360px; line-height: 1.6; resize: vertical; }
   .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  @media (max-width: 560px) { .meta-grid { grid-template-columns: 1fr; } }
   .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--line); }
-  .placeholder { padding: 90px 24px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
+  .placeholder { padding: 90px 24px; text-align: center; color: var(--muted); font-size: 16px; line-height: 1.6; }
 
   /* ---- stats ---- */
-  .stats-summary { display: flex; gap: 12px; padding: 22px 22px 0; }
-  .stat-card { flex: 1; background: rgba(18,109,106,.05); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-  .stat-card .value { font-size: 22px; font-weight: 800; color: var(--teal-dark); font-family: Georgia, serif; }
-  .stat-card .label { margin-top: 2px; font-size: 11px; color: var(--muted); }
+  .stats-summary { display: flex; gap: 12px; padding: 22px 22px 0; flex-wrap: wrap; }
+  .stat-card { flex: 1; min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+  .stat-card .value { font-size: 32px; font-weight: 800; color: var(--navy); line-height: 1.2; }
+  .stat-card .label { margin-top: 4px; font-size: 16px; color: var(--muted); }
   .stats-section { padding: 22px; }
-  .stats-section h3 { margin: 0 0 12px; font-size: 13px; font-weight: 700; }
-  .stat-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .stats-section h3 { margin: 0 0 12px; font-size: 18px; font-weight: 800; }
+  .stat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
   .stat-row:last-child { border-bottom: none; }
-  .stat-row .rank { flex-shrink: 0; width: 20px; color: var(--muted); font-weight: 700; }
+  .stat-row .rank { flex-shrink: 0; width: 28px; color: var(--muted); font-weight: 700; }
   .stat-row .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .stat-row .count { flex-shrink: 0; background: var(--teal); color: #fff; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+  .stat-row .count { flex-shrink: 0; background: var(--navy); color: #fff; border-radius: 999px; padding: 2px 12px; font-size: 16px; font-weight: 700; }
+  .muted-note { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
 
   /* ---- toast ---- */
   #toast { position: fixed; top: 18px; right: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
-  .toast-item { background: var(--teal-dark); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 12.5px; box-shadow: var(--shadow); max-width: 340px; animation: toast-in .2s ease both; }
-  .toast-item.error { background: var(--coral); }
+  .toast-item { background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 12px; font-size: 16px; box-shadow: var(--shadow); max-width: 380px; animation: toast-in .2s ease both; }
+  .toast-item.error { background: var(--danger); }
   @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
   /* ---- upload drop zone ---- */
-  .drop-zone { border: 2px dashed var(--line); border-radius: 12px; padding: 36px 16px; text-align: center; color: var(--muted); cursor: pointer; font-size: 13px; transition: border-color .15s, background .15s; }
-  .drop-zone:hover { border-color: #b7c4bd; }
-  .drop-zone.drag { border-color: var(--teal); background: rgba(18,109,106,.06); color: var(--teal-dark); }
-  .drop-zone small { display: block; margin-top: 6px; color: #9aa7a4; }
-  .integration-card { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(18,109,106,.035); }
-  .integration-card h3 { margin: 0; font: 600 15px Georgia, 'Times New Roman', serif; }
-  .integration-card p { margin: 7px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .drop-zone { border: 2px dashed var(--line); border-radius: 16px; padding: 36px 16px; text-align: center; color: var(--muted); cursor: pointer; font-size: 16px; transition: border-color .15s, background .15s; }
+  .drop-zone:hover { border-color: rgba(38,39,93,.35); }
+  .drop-zone.drag { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); }
+  .drop-zone small { display: block; margin-top: 6px; color: var(--muted); font-size: 16px; }
+
+  /* ---- API nhúng ---- */
+  .key-block { padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .key-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .key-head strong { font-size: 18px; color: var(--navy); }
+  .key-head .badge { margin-left: 8px; }
+  .key-actions { display: flex; gap: 8px; }
+  .integration-card { margin-top: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+  .integration-card h3 { margin: 0; font-size: 18px; font-weight: 800; }
+  .integration-card p { margin: 8px 0 14px; color: var(--muted); font-size: 16px; line-height: 1.6; }
   .code-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
-  .code-row textarea { flex: 1; min-width: 0; margin: 0 !important; min-height: 42px !important; resize: vertical; }
+  .code-row textarea { flex: 1; min-width: 0; margin: 0 !important; min-height: 48px !important; resize: vertical; }
   .code-row .btn { flex-shrink: 0; align-self: flex-start; }
-  .integration-note { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--yellow); background: #fff9e8; color: #6f5b22; font-size: 11.5px; line-height: 1.5; }
-  .key-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 11.5px; }
+  .integration-note { margin-top: 12px; padding: 10px 14px; border-left: 4px solid var(--yellow); background: #FFFBE0; color: var(--ink); font-size: 16px; line-height: 1.6; }
+  .key-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--muted); font-size: 16px; }
   .key-meta strong { color: var(--ink); }
 </style>
 </head>
 <body>
 <header>
   <div class="brand">
-    <div class="brand-mark">VA</div>
+    <img class="brand-logo" src="/brand/logo-vietanh.webp" alt="Trường Việt Anh">
+    <span class="brand-divider" aria-hidden="true"></span>
     <div>
-      <h1 class="serif">Staff Assistant</h1>
-      <small>Admin · Supabase</small>
+      <h1>Quản trị tri thức</h1>
+      <small>Trợ lý nội bộ · Admin</small>
     </div>
   </div>
   <button class="btn ghost small" id="logoutBtn" style="display:none">Đăng xuất</button>
 </header>
 
 <div id="login">
-  <div class="brand-mark">VA</div>
-  <h2 class="serif">Đăng nhập Admin</h2>
+  <img class="brand-logo" src="/brand/logo-vietanh.webp" alt="Trường Việt Anh">
+  <h2>Đăng nhập quản trị</h2>
   <p>Nhập admin token để quản lý nội dung tri thức.</p>
-  <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off">
-  <button class="btn" id="loginBtn">Vào trang quản trị</button>
+  <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off" aria-label="Admin token">
+  <button class="btn cta" id="loginBtn">Vào trang quản trị</button>
   <div class="error" id="loginError"></div>
 </div>
 
@@ -155,8 +183,8 @@
   <div class="layout">
     <div class="panel">
       <div class="panel-head">
-        <strong class="serif">Danh sách note</strong>
-        <select id="statusFilter">
+        <strong>Danh sách note</strong>
+        <select id="statusFilter" aria-label="Lọc theo trạng thái">
           <option value="draft">Chờ duyệt (draft)</option>
           <option value="approved">Đã duyệt</option>
           <option value="rejected">Đã từ chối</option>
@@ -164,7 +192,7 @@
         </select>
       </div>
       <div class="panel-head-actions">
-        <button class="btn small" id="newNoteBtn">+ Note mới</button>
+        <button class="btn small cta" id="newNoteBtn">+ Note mới</button>
         <button class="btn small secondary" id="uploadBtn">Upload file</button>
         <button class="btn small secondary" id="statsBtn">Thống kê</button>
         <button class="btn small secondary" id="apiKeysBtn">API nhúng</button>
@@ -174,8 +202,8 @@
       <div id="list"></div>
     </div>
     <div class="panel" id="editorPanel">
-      <div class="panel-head"><strong class="serif" id="editorTitle">Chọn một note để xem chi tiết</strong></div>
-      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Tạo note mới" / "Upload file".</div></div>
+      <div class="panel-head"><strong id="editorTitle">Chọn một note để xem chi tiết</strong></div>
+      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Note mới" / "Upload file".</div></div>
     </div>
   </div>
 </main>
@@ -464,7 +492,7 @@ function showUploadForm() {
     <label>File</label>
     <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small></div>
     <input type="file" id="uploadFileInput" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
-    <p style="margin:14px 0 0;font-size:11.5px;color:var(--muted);line-height:1.5">File sẽ được duyệt tự động và chatbot dùng được ngay — kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
+    <p class="muted-note" style="margin-top:14px">File sẽ được duyệt tự động và chatbot dùng được ngay — kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
     <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload & duyệt tự động</button></div>
   `;
   revealEditorOnMobile();
@@ -543,7 +571,7 @@ async function showStats() {
 }
 
 function renderStatRows(rows, getText) {
-  if (!rows || !rows.length) return '<p style="font-size:12.5px;color:var(--muted)">Chưa có dữ liệu.</p>';
+  if (!rows || !rows.length) return '<p class="muted-note">Chưa có dữ liệu.</p>';
   return rows.map((row, index) => `
     <div class="stat-row">
       <span class="rank">${index + 1}</span>
@@ -610,13 +638,13 @@ async function renderApiKeys() {
     return;
   }
   const rows = keys.map((k) => `
-    <div class="stats-section" style="padding:16px 0;border-bottom:1px solid var(--line)">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <div class="key-block">
+      <div class="key-head">
         <div>
-          <strong style="font-size:13.5px">${escapeHtml(k.label)}</strong>
-          <span class="badge ${k.status === 'active' ? 'approved' : 'rejected'}" style="margin-left:8px">${k.status}</span>
+          <strong>${escapeHtml(k.label)}</strong>
+          <span class="badge ${k.status === 'active' ? 'approved' : 'rejected'}">${k.status}</span>
         </div>
-        <div style="display:flex;gap:8px">
+        <div class="key-actions">
           ${k.status === 'active' ? `<button class="btn secondary small" data-revoke="${k.id}">Thu hồi</button>` : ""}
           <button class="btn danger small" data-delete="${k.id}">Xoá</button>
         </div>
@@ -637,14 +665,14 @@ async function renderApiKeys() {
         <div class="integration-note">Giữ key ở backend Major OS, không đưa vào frontend.</div>
       </div>
     </div>
-  `).join("") || '<p style="font-size:12.5px;color:var(--muted)">Chưa có API key nào.</p>';
+  `).join("") || '<p class="muted-note">Chưa có API key nào.</p>';
 
   document.getElementById("editor").innerHTML = `
     <label>Tên trang nhúng</label>
     <input id="newKeyLabel" placeholder="Vd: Intranet phòng HR">
     <label>Domain của giao diện đối tác (vd https://os.truongvietanh.com)</label>
     <input id="newKeyOrigin" placeholder="https://os.truongvietanh.com" inputmode="url">
-    <p style="margin:7px 0 0;color:var(--muted);font-size:11.5px;line-height:1.5">Nhập đúng origin gồm giao thức và domain, không thêm đường dẫn phía sau. Key dùng cho API backend; domain này cũng là domain được phép dùng iframe.</p>
+    <p class="muted-note" style="margin-top:8px">Nhập đúng origin gồm giao thức và domain, không thêm đường dẫn phía sau. Key dùng cho API backend; domain này cũng là domain được phép dùng iframe.</p>
     <div class="actions"><button class="btn" id="createKeyBtn">Tạo API key</button></div>
     <div style="margin-top:22px">${rows}</div>
   `;
