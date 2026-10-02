@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     admin_token: str | None = None
     anthropic_api_key: str | None = None
     vault_path: str | None = None
+    vault_ready_marker: str | None = None
+    """Ten file o goc vault ma drive-sync tao sau khi keo xong vault lan dau (tren
+    server: '.drive-sync-ready'). Dat thi VaultWatcher cho file nay roi moi theo doi;
+    de trong khi chay local khong co drive-sync."""
     claude_cli_path: str | None = None
     """Duong dan toi binary claude native - can thiet tren Windows (npm cli la .CMD,
     bi Claude Agent SDK tu choi chay vi ly do bao mat). Tren Linux server, de trong

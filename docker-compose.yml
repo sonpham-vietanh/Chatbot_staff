@@ -37,6 +37,7 @@ services:
       MIN_RELEVANCE_SCORE: "0.22"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
       VAULT_PATH: "/data/vault"
+      VAULT_READY_MARKER: ".drive-sync-ready"
     volumes:
       - vault-data:/data/vault
       - app-data:/app/data
