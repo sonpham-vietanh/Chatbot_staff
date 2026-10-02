@@ -1,12 +1,38 @@
 from datetime import datetime, timezone
+import logging
 import secrets
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.services.supabase_client import SupabaseClient
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 class ApiKeyNotFoundError(Exception):
     pass
+
+
+def normalize_origin(value: str | None) -> str | None:
+    """Đưa origin về đúng dạng trình duyệt gửi trong header Origin (chữ thường, không
+    port mặc định, không dấu '/' cuối) để so khớp không lệch vì cách gõ. Trả None nếu
+    không phải origin http(s) hợp lệ (có đường dẫn/query, 'null', thiếu giao thức...)."""
+    if not value:
+        return None
+    try:
+        parts = urlsplit(value.strip())
+        port = parts.port
+    except ValueError:
+        return None
+    scheme = parts.scheme.lower()
+    if scheme not in DEFAULT_PORTS or not parts.hostname:
+        return None
+    if parts.path not in ("", "/") or parts.query or parts.fragment or parts.username:
+        return None
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    return f"{scheme}://{host}" + (f":{port}" if port and port != DEFAULT_PORTS[scheme] else "")
 
 
 class ApiKeyService:
@@ -20,11 +46,14 @@ class ApiKeyService:
         return self.client.select("api_keys", {"select": "*", "order": "created_at.desc"})
 
     def create_key(self, label: str, allowed_origin: str) -> dict[str, Any]:
+        origin = normalize_origin(allowed_origin)
+        if not origin:
+            raise ValueError(f"Origin không hợp lệ: {allowed_origin}")
         key = "vas_" + secrets.token_urlsafe(24)
         rows = self.client.insert("api_keys", [{
             "label": label,
             "key": key,
-            "allowed_origin": allowed_origin.rstrip("/"),
+            "allowed_origin": origin,
         }])
         return rows[0]
 
@@ -43,6 +72,11 @@ class ApiKeyService:
         return rows[0] if rows else None
 
     def touch_last_used(self, key_id: str) -> None:
-        self.client.update(
-            "api_keys", {"id": f"eq.{key_id}"}, {"last_used_at": datetime.now(timezone.utc).isoformat()}
-        )
+        """last_used_at chỉ để admin theo dõi — best-effort, lỗi ghi không được làm hỏng
+        request của bên tích hợp (nhưng phải ghi log để còn biết mà sửa)."""
+        try:
+            self.client.update(
+                "api_keys", {"id": f"eq.{key_id}"}, {"last_used_at": datetime.now(timezone.utc).isoformat()}
+            )
+        except Exception:
+            logger.warning("Không cập nhật được last_used_at cho API key %s", key_id, exc_info=True)

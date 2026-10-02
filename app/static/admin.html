@@ -570,7 +570,8 @@ function widgetResponseSnippet() {
   return `{
   "answer": "...",
   "grounded": true,
-  "citations": []
+  "citations": [{"source": "Tên tài liệu", "heading": "Mục trong tài liệu", "version": "0.1"}],
+  "thread_id": null
 }`;
 }
 
@@ -632,7 +633,7 @@ async function renderApiKeys() {
         <label>Request body</label>
         <div class="code-row"><textarea readonly rows="4">${escapeHtml(widgetRequestSnippet())}</textarea>${copyButton(widgetRequestSnippet())}</div>
         <label>Response thành công</label>
-        <div class="code-row"><textarea readonly rows="5">${escapeHtml(widgetResponseSnippet())}</textarea>${copyButton(widgetResponseSnippet())}</div>
+        <div class="code-row"><textarea readonly rows="6">${escapeHtml(widgetResponseSnippet())}</textarea>${copyButton(widgetResponseSnippet())}</div>
         <div class="integration-note">Giữ key ở backend Major OS, không đưa vào frontend.</div>
       </div>
     </div>
@@ -650,12 +651,15 @@ async function renderApiKeys() {
 
   document.getElementById("createKeyBtn").onclick = async () => {
     const label = document.getElementById("newKeyLabel").value.trim();
-    const allowed_origin = document.getElementById("newKeyOrigin").value.trim();
+    let allowed_origin = document.getElementById("newKeyOrigin").value.trim();
     if (!label || !allowed_origin) { toast("Cần nhập tên và domain.", true); return; }
     try {
       const url = new URL(allowed_origin);
-      if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' && url.pathname !== '') throw new Error();
-      document.getElementById("newKeyOrigin").value = url.origin;
+      if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' && url.pathname !== '' || url.search || url.hash) throw new Error();
+      // Lưu đúng origin đã chuẩn hoá (chữ thường, bỏ port mặc định) — backend so khớp
+      // tuyệt đối với header Origin của trình duyệt nên không được gửi chuỗi gõ tay.
+      allowed_origin = url.origin;
+      document.getElementById("newKeyOrigin").value = allowed_origin;
     } catch {
       toast("Domain phải có dạng https://os.truongvietanh.com và không có đường dẫn phía sau.", true);
       return;

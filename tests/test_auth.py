@@ -1,7 +1,8 @@
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from types import SimpleNamespace
+import asyncio
 import base64
 import json
 
@@ -64,18 +65,39 @@ class FakeWidgetKeys:
 
 def test_widget_key_accepts_active_key_without_origin_header():
     keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "https://os.truongvietanh.com"})
+    background = BackgroundTasks()
 
-    record = require_widget_key("vas_test", None, keys)
+    record = require_widget_key(background, "vas_test", None, keys)
 
     assert record["id"] == "key-1"
+    # last_used_at được ghi SAU khi trả response, không chặn request
+    assert keys.touched is None
+    asyncio.run(background())
     assert keys.touched == "key-1"
 
 
 def test_widget_key_rejects_wrong_origin():
     keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "https://os.truongvietanh.com"})
 
+    for origin in ("https://other.example.com", "null", "https://os.truongvietanh.com.evil.com"):
+        with pytest.raises(HTTPException) as error:
+            require_widget_key(BackgroundTasks(), "vas_test", origin, keys)
+
+        assert error.value.status_code == 403
+
+
+def test_widget_key_compares_origin_after_normalizing_both_sides():
+    """Key cũ lưu origin gõ tay (chữ hoa, port mặc định) vẫn khớp header Origin của trình duyệt."""
+    keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "https://OS.truongvietanh.com:443/"})
+
+    assert require_widget_key(BackgroundTasks(), "vas_test", "https://os.truongvietanh.com", keys)["id"] == "key-1"
+
+
+def test_widget_key_with_unusable_stored_origin_rejects_any_origin_header():
+    keys = FakeWidgetKeys({"id": "key-1", "allowed_origin": "os.truongvietanh.com/app"})
+
     with pytest.raises(HTTPException) as error:
-        require_widget_key("vas_test", "https://other.example.com", keys)
+        require_widget_key(BackgroundTasks(), "vas_test", "null", keys)
 
     assert error.value.status_code == 403
 

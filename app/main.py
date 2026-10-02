@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import get_rag_service, router
 from app.config import get_settings
+from app.services.api_key_service import normalize_origin
 from app.services.vault_watcher import VaultWatcher
 
 # Mac dinh Python khong co handler nao ca - log INFO cua vault_watcher (vd xac nhan
@@ -69,8 +70,9 @@ def demo_ui(embed_key: str | None = None) -> FileResponse:
     frame_ancestors = "'self'"
     if embed_key:
         record = get_rag_service().api_keys.get_active_key(embed_key)
-        if record:
-            frame_ancestors = f"'self' {record['allowed_origin']}"
+        allowed_origin = normalize_origin(record["allowed_origin"]) if record else None
+        if allowed_origin:
+            frame_ancestors = f"'self' {allowed_origin}"
             get_rag_service().api_keys.touch_last_used(record["id"])
     response.headers["Content-Security-Policy"] = f"frame-ancestors {frame_ancestors}"
     return response

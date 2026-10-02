@@ -2,6 +2,7 @@ import re
 from typing import Any
 
 from app.config import Settings
+from app.models.schemas import MAX_HISTORY_ITEMS
 from app.rag.embeddings import build_embedding_provider
 from app.rag.prompt_builder import FALLBACK_ANSWER
 from app.rag.vector_store import VectorStore
@@ -16,7 +17,7 @@ from app.services.supabase_client import SupabaseClient
 from app.services.wiki_sync_service import WikiSyncService
 
 CITATION_LINE_PATTERN = re.compile(r"^\s*\[Nguồn:\s*(.+?)\]?\s*$", re.MULTILINE)
-MAX_HISTORY_TURNS = 6
+VERSION_PATTERN = re.compile(r"^v?\d+(\.\d+)*$", re.IGNORECASE)
 
 
 class AdvancedRAGPipeline:
@@ -58,7 +59,7 @@ class AdvancedRAGPipeline:
 
     def chat(self, question: str, history: list[dict] | None = None,
              asker_department: str | None = None) -> dict[str, Any]:
-        history = (history or [])[-MAX_HISTORY_TURNS:]
+        history = (history or [])[-MAX_HISTORY_ITEMS:]
         results = self.retrieve(question, history)
         grounded_seeds = [item for item in results if item["score"] >= self.settings.min_relevance_score]
         # Chỉ đưa CONTEXT vào prompt khi retrieval thực sự vượt ngưỡng tin cậy; nếu không,
@@ -74,7 +75,7 @@ class AdvancedRAGPipeline:
                 created_by="AI_Bot",
             )
             return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
-        citations = self._parse_citations(answer) if grounded_seeds else []
+        citations = self._parse_citations(answer, results) if grounded_seeds else []
         display_answer = self._strip_citation_tags(answer) if citations else answer
         return {"answer": display_answer, "grounded": bool(citations), "citations": citations}
 
@@ -100,18 +101,42 @@ class AdvancedRAGPipeline:
         return "\n".join(cleaned).strip()
 
     @staticmethod
-    def _parse_citations(answer: str) -> list[dict[str, str]]:
+    def _parse_citations(answer: str, results: list[dict[str, Any]] | None = None) -> list[dict[str, str]]:
         """Lấy citation trực tiếp từ dòng [Nguồn: ...] mà LLM thực sự trích trong câu trả lời,
         tránh gắn nhầm nguồn không liên quan (vd. câu chào hỏi trùng ngẫu nhiên với top-k).
-        Parse theo dòng, không bắt buộc dấu ']' đóng chuẩn vì model đôi khi bỏ sót."""
+        Parse theo dòng, không bắt buộc dấu ']' đóng chuẩn vì model đôi khi bỏ sót.
+
+        Heading của chunk là đường dẫn nhiều cấp nối bằng ' > ' (xem chunking.py) nên không
+        tách heading/version theo vị trí được: ưu tiên khớp với metadata của chính các chunk
+        đã truy xuất (`results`); không khớp thì chỉ coi phần cuối là version khi nó có dạng
+        số phiên bản."""
+        known: list[tuple[str, str, str, str]] = []
+        for item in results or []:
+            metadata = item["metadata"]
+            heading = str(metadata.get("heading") or "Nội dung chung")
+            known.append((
+                str(metadata.get("source_file") or metadata.get("source") or ""),
+                " > ".join(part.strip() for part in heading.split(">")),
+                heading,
+                str(metadata.get("version") or "unknown"),
+            ))
         unique: dict[tuple[str, str, str], dict[str, str]] = {}
         for raw in CITATION_LINE_PATTERN.findall(answer):
             parts = [part.strip() for part in raw.split(">")]
             if not parts or not parts[0]:
                 continue
-            source = parts[0]
-            heading = parts[1] if len(parts) > 1 else "Nội dung chung"
-            version = " > ".join(parts[2:]) if len(parts) > 2 else "unknown"
+            source, rest = parts[0], [part for part in parts[1:] if part]
+            cited = " > ".join(rest)
+            match = next(
+                (entry for entry in known if entry[0] == source and cited in (entry[1], f"{entry[1]} > {entry[3]}")),
+                None,
+            )
+            if match:
+                heading, version = match[2], match[3]
+            elif len(rest) > 1 and VERSION_PATTERN.match(rest[-1]):
+                heading, version = " > ".join(rest[:-1]), rest[-1]
+            else:
+                heading, version = cited or "Nội dung chung", "unknown"
             citation = {"source": source, "heading": heading, "version": version}
             unique[(source, heading, version)] = citation
         return list(unique.values())

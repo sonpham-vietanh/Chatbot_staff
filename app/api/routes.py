@@ -23,7 +23,7 @@ from app.models.schemas import (
     ThreadSummary,
 )
 from app.services.admin_service import AdminService, NoteNotFoundError
-from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService
+from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService, normalize_origin
 from app.services.auth_service import AuthError, AuthService, is_public_auth_key
 from app.services.chat_history_service import ChatHistoryService
 from app.services.employee_directory_service import EmployeeDirectoryService
@@ -60,6 +60,7 @@ def get_employee_directory(rag: RAGService = Depends(get_rag_service)) -> Employ
 
 
 def require_widget_key(
+    background_tasks: BackgroundTasks,
     x_widget_key: str | None = Header(default=None),
     origin: str | None = Header(default=None),
     api_keys: ApiKeyService = Depends(get_api_key_service),
@@ -69,9 +70,11 @@ def require_widget_key(
     record = api_keys.get_active_key(x_widget_key)
     if not record:
         raise HTTPException(status_code=401, detail="Widget key không hợp lệ hoặc đã bị thu hồi")
-    if origin and origin.rstrip("/") != record["allowed_origin"]:
+    allowed_origin = normalize_origin(record["allowed_origin"])
+    if origin and (allowed_origin is None or normalize_origin(origin) != allowed_origin):
         raise HTTPException(status_code=403, detail="Origin không được phép dùng widget key này")
-    api_keys.touch_last_used(record["id"])
+    # Ghi last_used_at sau khi đã trả response — không để 1 lần ghi theo dõi làm chậm câu trả lời.
+    background_tasks.add_task(api_keys.touch_last_used, record["id"])
     return record
 
 

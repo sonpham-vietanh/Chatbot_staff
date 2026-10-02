@@ -1,19 +1,42 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.api_key_service import normalize_origin
+
+MAX_TURN_CHARS = 2000
+MAX_HISTORY_ITEMS = 6
+"""Số tin nhắn history thực sự được dùng làm ngữ cảnh — pipeline dùng chung hằng số này."""
 
 
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(max_length=2000)
+    content: str = Field(description=f"Dài hơn {MAX_TURN_CHARS} ký tự sẽ tự được cắt bớt, không báo lỗi.")
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _truncate_content(cls, value: Any) -> Any:
+        """History chỉ là ngữ cảnh cho câu hỏi nối tiếp — câu trả lời cũ quá dài thì cắt
+        bớt thay vì trả 422 làm hỏng cả cuộc trò chuyện của client (kể cả bên tích hợp)."""
+        return value[:MAX_TURN_CHARS] if isinstance(value, str) else value
 
 
 class ChatRequest(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     user_department: str | None = None
     department: str | None = None
-    history: list[ChatTurn] = Field(default_factory=list, max_length=12)
+    history: list[ChatTurn] = Field(
+        default_factory=list,
+        description=f"Chỉ {MAX_HISTORY_ITEMS} tin nhắn cuối được dùng; phần cũ hơn tự bị bỏ, không báo lỗi.",
+    )
     thread_id: str | None = None
+
+    @field_validator("history", mode="before")
+    @classmethod
+    def _keep_latest_history(cls, value: Any) -> Any:
+        """Client gửi cả cuộc trò chuyện dài thì chỉ giữ các tin gần nhất, không từ chối
+        request."""
+        return value[-MAX_HISTORY_ITEMS:] if isinstance(value, list) else value
 
 
 class Citation(BaseModel):
@@ -83,6 +106,14 @@ class AnalyticsSummary(BaseModel):
 class ApiKeyCreateRequest(BaseModel):
     label: str = Field(min_length=1, max_length=100)
     allowed_origin: str = Field(min_length=1, max_length=300)
+
+    @field_validator("allowed_origin")
+    @classmethod
+    def _normalize_allowed_origin(cls, value: str) -> str:
+        origin = normalize_origin(value)
+        if not origin:
+            raise ValueError("Phải là origin dạng https://ten-mien, không kèm đường dẫn")
+        return origin
 
 
 class ApiKeyOut(BaseModel):

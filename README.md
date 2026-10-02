@@ -169,8 +169,10 @@ Có 2 đường ghi dữ liệu vào wiki:
 
 Trong `/admin` → **API nhúng**, tạo một key với label và domain của ứng dụng đối tác. Key này có thể dùng theo hai cách:
 
-- **Iframe**: copy đoạn iframe do Admin sinh ra. Người dùng trong iframe vẫn cần đăng nhập chatbot.
-- **Server-to-server**: backend của ứng dụng đối tác gọi `POST /api/widget/chat` với header `X-Widget-Key`. Cách này dùng phiên đăng nhập Google của ứng dụng đối tác, nên người dùng không phải đăng nhập chatbot lần hai.
+- **Server-to-server** (khuyến nghị): backend của ứng dụng đối tác gọi `POST /api/widget/chat` với header `X-Widget-Key`. Cách này dùng phiên đăng nhập Google của ứng dụng đối tác, nên người dùng không phải đăng nhập chatbot lần hai. Endpoint này không biết người dùng cuối là ai — backend đối tác phải tự kiểm tra đăng nhập trước khi chuyển câu hỏi sang. `history` chỉ cần 6 tin gần nhất; server tự giữ 6 tin cuối và cắt mỗi `content` còn 2000 ký tự, không trả lỗi.
+- **Iframe** (phương án phụ): nhúng `<origin chatbot>/?embed_key=<key>`; người dùng trong iframe vẫn cần đăng nhập chatbot. ⚠️ **Chưa nên dùng**: hệ thống chưa tách loại key, nên key đặt trong URL iframe (ai xem mã nguồn trang cũng đọc được) vẫn gọi được `/api/widget/chat` mà không cần đăng nhập. Cần thêm loại key "chỉ iframe" (bị `/api/widget/chat` từ chối) trước khi bật phương án này.
+
+Hướng dẫn chi tiết gửi cho bên tích hợp Major OS: `docs/Huong_dan_tich_hop_Mini_Chat_Major_OS.docx`.
 
 Ví dụ request server-to-server:
 

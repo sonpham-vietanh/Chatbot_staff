@@ -1,6 +1,8 @@
 import pytest
+from pydantic import ValidationError
 
-from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService
+from app.models.schemas import ApiKeyCreateRequest
+from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService, normalize_origin
 
 
 class FakeClient:
@@ -44,6 +46,43 @@ def test_create_key_has_prefix_and_is_active():
     assert key["key"].startswith("vas_")
     assert key["status"] == "active"
     assert key["allowed_origin"] == "https://intranet.truongvietanh.com"  # trailing slash bị cắt
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("https://OS.TruongVietAnh.com/", "https://os.truongvietanh.com"),
+    ("https://os.truongvietanh.com:443", "https://os.truongvietanh.com"),
+    ("http://localhost:3000", "http://localhost:3000"),
+    ("https://os.truongvietanh.com/app", None),
+    ("https://os.truongvietanh.com/?x=1", None),
+    ("os.truongvietanh.com", None),
+    ("ftp://os.truongvietanh.com", None),
+    ("https://os.truongvietanh.com:abc", None),
+    ("null", None),
+    ("", None),
+    (None, None),
+])
+def test_normalize_origin(raw, expected):
+    assert normalize_origin(raw) == expected
+
+
+def test_create_key_stores_normalized_origin_and_rejects_invalid_one():
+    service = ApiKeyService(FakeClient())
+
+    assert service.create_key("Major OS", "https://OS.truongvietanh.com:443/")["allowed_origin"] == "https://os.truongvietanh.com"
+    with pytest.raises(ValueError):
+        service.create_key("Major OS", "https://os.truongvietanh.com/app")
+    with pytest.raises(ValidationError):
+        ApiKeyCreateRequest(label="Major OS", allowed_origin="os.truongvietanh.com")
+    assert ApiKeyCreateRequest(label="Major OS", allowed_origin="https://OS.truongvietanh.com/").allowed_origin == "https://os.truongvietanh.com"
+
+
+def test_touch_last_used_never_raises():
+    """last_used_at chỉ để theo dõi — Supabase lỗi thì ghi log, không làm hỏng request."""
+    class BrokenClient(FakeClient):
+        def update(self, table, params, patch):
+            raise RuntimeError("supabase timeout")
+
+    ApiKeyService(BrokenClient()).touch_last_used("key-1")
 
 
 def test_get_active_key_ignores_revoked():

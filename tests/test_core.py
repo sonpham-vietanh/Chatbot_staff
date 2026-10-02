@@ -1,5 +1,31 @@
+import pytest
+from pydantic import ValidationError
+
+from app.models.schemas import MAX_HISTORY_ITEMS, MAX_TURN_CHARS, ChatRequest
 from app.rag.chunking import chunk_content
 from app.rag.embeddings import MockEmbeddingProvider
+
+
+def test_chat_request_keeps_latest_history_and_truncates_long_turns():
+    """Client (kể cả bên tích hợp widget) gửi cả cuộc trò chuyện dài hoặc câu trả lời cũ
+    quá dài thì vẫn được nhận — chỉ giữ các lượt gần nhất, không trả 422."""
+    history = [{"role": "user", "content": f"câu {index}"} for index in range(MAX_HISTORY_ITEMS + 5)]
+    history.append({"role": "assistant", "content": "a" * (MAX_TURN_CHARS + 500)})
+
+    request = ChatRequest(question="Câu hỏi nối tiếp", history=history)
+
+    assert len(request.history) == MAX_HISTORY_ITEMS
+    assert request.history[0].content == "câu 6"
+    assert len(request.history[-1].content) == MAX_TURN_CHARS
+
+
+def test_chat_request_still_rejects_malformed_input():
+    with pytest.raises(ValidationError):
+        ChatRequest(question="a")
+    with pytest.raises(ValidationError):
+        ChatRequest(question="Câu hỏi", history=[{"role": "bot", "content": "x"}])
+    with pytest.raises(ValidationError):
+        ChatRequest(question="Câu hỏi", history="không phải mảng")
 
 
 def test_mock_embedding_is_deterministic():
