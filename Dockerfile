@@ -2,7 +2,17 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# npm KHONG bao loi khi tai hong 1 goi "optional" - ma binary native theo nen tang cua
+# lightningcss/rolldown (Vite can de build) lai la goi optional. Ngay 2026-10-02 mot lan
+# deploy hong vi npm ci am tham bo sot lightningcss-linux-x64-musl (cai 103/104 goi) roi
+# "vite build" moi bao "Cannot find module ../lightningcss.linux-x64-musl.node". Nen phai
+# tu kiem tra ngay sau khi cai, thieu thi cai lai 1 lan, van thieu thi dung o day voi loi ro rang.
+RUN npm ci \
+    && (node -e "require('lightningcss'); require('rolldown')" \
+        || (echo "Thieu binary native sau npm ci - cai lai" \
+            && rm -rf node_modules \
+            && npm ci \
+            && node -e "require('lightningcss'); require('rolldown')"))
 COPY frontend/ ./
 RUN npm run build
 
