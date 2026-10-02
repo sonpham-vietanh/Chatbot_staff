@@ -354,6 +354,7 @@ function App() {
   }
 
   const statusOnline = health?.status === 'ok'
+  const statusPending = health === null
   const approvedCount = health?.approved_notes || 0
 
   if (!authChecked) {
@@ -433,8 +434,8 @@ function App() {
                 <p className="mt-0.5 text-base text-muted">Tra cứu quy định đã được duyệt · Trường Việt Anh</p>
               </div>
               <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-4 py-1.5 text-base text-ink">
-                <span className={`status-dot ${statusOnline ? 'online' : ''}`} />
-                {statusOnline ? `${approvedCount} tài liệu đã duyệt` : 'Mất kết nối'}
+                <span className={`status-dot ${statusOnline ? 'online' : statusPending ? 'pending' : ''}`} />
+                {statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
@@ -478,8 +479,8 @@ function App() {
               </div>
               <p className="mt-3 text-base leading-7 text-muted">Trợ lý chỉ trả lời từ nội dung đã được duyệt, áp dụng cho cán bộ, giáo viên, nhân viên.</p>
               <div className="mt-4 flex items-center gap-2 border-t border-line pt-4 text-base text-ink">
-                {statusOnline ? <Check size={18} className="shrink-0 text-success" /> : <span className="status-dot" />}
-                {statusOnline ? `${approvedCount} tài liệu đang sẵn sàng` : 'Chưa kết nối được kho tri thức'}
+                {statusOnline ? <Check size={18} className="shrink-0 text-success" /> : <span className={`status-dot ${statusPending ? 'pending' : ''}`} />}
+                {statusOnline ? `${approvedCount} tài liệu đang sẵn sàng` : statusPending ? 'Đang kết nối kho tri thức...' : 'Chưa kết nối được kho tri thức'}
               </div>
               {user.employee && (
                 <div className="mt-4 border-t border-line pt-4 text-base">

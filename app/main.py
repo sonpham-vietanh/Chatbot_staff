@@ -19,6 +19,10 @@ from app.services.vault_watcher import VaultWatcher
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+NO_CACHE = "no-cache"
+"""Trang HTML phải được trình duyệt hỏi lại mỗi lần mở: sau mỗi lần build, tên file
+/assets/index-<hash>.css|js đổi, trang HTML cũ còn trong cache sẽ trỏ tới file không còn
+tồn tại -> giao diện mất hết CSS. (File trong /assets có hash trong tên nên cache thoải mái.)"""
 
 
 @asynccontextmanager
@@ -87,6 +91,7 @@ def demo_ui(embed_key: str | None = None) -> FileResponse:
             frame_ancestors = f"'self' {allowed_origin}"
             get_rag_service().api_keys.touch_last_used(record["id"])
     response.headers["Content-Security-Policy"] = f"frame-ancestors {frame_ancestors}"
+    response.headers["Cache-Control"] = NO_CACHE
     return response
 
 
@@ -94,5 +99,6 @@ def demo_ui(embed_key: str | None = None) -> FileResponse:
 def admin_ui() -> FileResponse:
     response = FileResponse(Path(__file__).parent / "static" / "admin.html")
     response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+    response.headers["Cache-Control"] = NO_CACHE
     return response
 

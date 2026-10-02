@@ -60,5 +60,8 @@ def test_brand_assets_are_served_for_every_page():
 
     assert logo.status_code == 200 and logo.headers["content-type"] == "image/webp"
     assert favicon.status_code == 200 and favicon.headers["content-type"] == "image/png"
-    admin = client.get("/admin").text
-    assert "/brand/logo-vietanh.webp" in admin and "/brand/favicon.png" in admin
+    admin = client.get("/admin")
+    assert "/brand/logo-vietanh.webp" in admin.text and "/brand/favicon.png" in admin.text
+    # Trang HTML không được dùng bản cache cũ (trỏ tới file CSS/JS của bản build trước)
+    assert admin.headers["cache-control"] == "no-cache"
+    assert client.get("/").headers["cache-control"] == "no-cache"

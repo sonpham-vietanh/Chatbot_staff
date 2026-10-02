@@ -30,6 +30,7 @@ button, select, input, textarea { font-family: inherit; font-size: 16px; }
 
 .status-dot { display: inline-block; height: 10px; width: 10px; border-radius: 999px; background: #B42318; }
 .status-dot.online { background: #1E7A4C; }
+.status-dot.pending { background: #555873; }
 
 .typing { display: inline-flex; gap: 4px; margin-right: 8px; vertical-align: middle; }
 .typing i { height: 7px; width: 7px; border-radius: 50%; background: #26275D; animation: pulse 1s infinite ease-in-out; }
