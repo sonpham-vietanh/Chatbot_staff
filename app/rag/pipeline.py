@@ -166,10 +166,16 @@ class AdvancedRAGPipeline:
                 position = end + 1
                 opener = CITATION_OPEN.search(line, position)
             rest = ("".join(pieces) + line[position:]).rstrip()
+            rest = rest.replace(" ()", "").replace("()", "")  # "(…[Nguồn: …])" để lại cặp ngoặc rỗng
             if not pieces[0].strip():
                 rest = rest.lstrip()
             core = rest.strip(DECORATION_CHARS)
             if not core or core.isdigit():  # chỉ còn "- ", "1. ", "**", "()"... -> bỏ cả dòng
+                # Nhãn giới thiệu ("Nguồn:", "Các nguồn đã dùng:") ngay trên dòng thẻ cũng bỏ theo.
+                while kept and not kept[-1]:
+                    kept.pop()
+                if kept and SOURCE_LABEL_LINE.match(kept[-1]):
+                    kept.pop()
                 continue
             kept.append(rest)
 

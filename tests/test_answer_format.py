@@ -79,6 +79,9 @@ def test_bullet_block_is_separated_from_plain_lines_by_a_blank_line():
     # Ý con viết bằng "+" thụt lề và dòng nối tiếp của 1 gạch đầu dòng
     ("- Mục A:\n  + ý 1\n  + ý 2\n- Mục B", "- Mục A:\n  - ý 1\n  - ý 2\n- Mục B"),
     ("- Mục A:\n  nội dung tiếp theo của mục A\n- Mục B", "- Mục A: nội dung tiếp theo của mục A\n- Mục B"),
+    # ...nhưng các bước đánh số / dòng bắt đầu bằng ký hiệu dưới 1 gạch đầu dòng là ý riêng
+    ("- Mục B\n  1. bước một\n  2. bước hai", "- Mục B\n\n  1. bước một\n  2. bước hai"),
+    ("- a\n  > 5 năm: 14 ngày\n- b", "- a\n\n  > 5 năm: 14 ngày\n\n- b"),
     # Thẻ HTML tách dòng không được làm dính chữ
     ("Thứ 2<br/>Thứ 3<BR />Thứ 4", "Thứ 2\nThứ 3\nThứ 4"),
     ("<ul><li>Nộp đơn</li><li>Chờ duyệt</li></ul>", "- Nộp đơn\n- Chờ duyệt"),
@@ -126,6 +129,9 @@ def test_plain_text_never_contains_markdown_markers():
 
     assert plain == "Tiêu đề\nĐậm và nghiêng và code và đậm 2\n\n- mục"
     assert not any(marker in plain for marker in ("**", "`", "#", "__"))
+    # Ký hiệu đầu dòng bị bọc đậm chỉ lộ ra sau khi bỏ ** — vẫn phải được gỡ
+    assert to_plain_text("**# Tiêu đề**\n\nNội dung") == "Tiêu đề\n\nNội dung"
+    assert to_plain_text("**• mục**") == "- mục"
 
 
 class FakeLLM:

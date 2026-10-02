@@ -89,6 +89,11 @@ def test_text_sharing_a_line_with_a_citation_tag_is_kept():
         "- Mục a\n    - mục con  một"
     )
     assert AdvancedRAGPipeline._strip_citation_tags(f"{BODY}\n\n([Nguồn: a > b > 1.0])") == BODY
+    assert AdvancedRAGPipeline._strip_citation_tags(f"Bạn cần báo trước **48 giờ** ({TAG}).") == BODY
+    # Nhãn "Nguồn:" đứng ngay trên dòng thẻ bị bỏ theo, kể cả khi sau đó còn câu khác
+    assert AdvancedRAGPipeline._strip_citation_tags(f"{BODY}\n\nNguồn:\n{TAG}\n\nBạn cần hỗ trợ gì thêm không?") == (
+        f"{BODY}\n\nBạn cần hỗ trợ gì thêm không?"
+    )
     # Dòng cuối kết thúc bằng dấu hai chấm nhưng không có thẻ nguồn nào thì không bị coi là nhãn nguồn
     assert AdvancedRAGPipeline._strip_citation_tags("Thu nhập gồm lương.\nCác nguồn thu nhập khác:") == (
         "Thu nhập gồm lương.\nCác nguồn thu nhập khác:"

@@ -30,6 +30,7 @@ _EMPTY_BULLET = re.compile(r"^\s*-\s*$")
 # Riêng "+" THỤT LỀ ngay dưới 1 gạch đầu dòng là ý con (cách viết rất phổ biến trong văn bản
 # tiếng Việt: "- Mục A:" rồi "  + ý 1").
 _NESTED_PLUS = re.compile(r"^(\s+)\+([ \t]+\S)")
+_CONTINUATION = re.compile(r"(?!\d+[.)]\s)[^\W\d_]")
 _LINK = re.compile(r"!?\[([^\]\n]{1,300})\]\((https?://[^\s)]{1,1000})\)")
 _HTML_INLINE = re.compile(r"</?(?:b|strong|i|em|u)\s*/?>|</li\s*>", re.IGNORECASE)
 _HTML_LIST_ITEM = re.compile(r"<li\s*>", re.IGNORECASE)
@@ -145,8 +146,10 @@ def _clean_once(answer: str) -> str:
         if previous and _BULLET_LINE.match(previous):
             if _NESTED_PLUS.match(line):
                 line = _NESTED_PLUS.sub(r"\1-\2", line)
-            elif line[0] in " \t" and not _BULLET_LINE.match(line):
-                # Dòng thụt lề ngay dưới 1 gạch đầu dòng là phần nối tiếp của chính ý đó.
+            elif line[0] in " \t" and _CONTINUATION.match(line.strip()):
+                # Dòng thụt lề ngay dưới 1 gạch đầu dòng, bắt đầu bằng chữ, là phần nối tiếp
+                # của chính ý đó. Dòng đánh số ("1. bước một") hay bắt đầu bằng ký hiệu
+                # ("> 5 năm") là ý riêng, giữ nguyên dòng.
                 cleaned[-1] = f"{previous} {line.strip()}"
                 continue
         if previous and bool(_BULLET_LINE.match(line)) != bool(_BULLET_LINE.match(previous)):
@@ -172,8 +175,12 @@ def clean_markdown(answer: str) -> str:
 
 def to_plain_text(answer: str) -> str:
     """Văn bản thuần: không còn ký hiệu Markdown nào; danh sách vẫn là các dòng '- ...'."""
-    lines = [
-        line if _MASK_LINE.fullmatch(line.strip()) else line.replace("**", "").rstrip()
-        for line in clean_markdown(answer).splitlines()
-    ]
-    return "\n".join(lines).strip()
+    def drop_bold(text: str) -> str:
+        return "\n".join(
+            line if _MASK_LINE.fullmatch(line.strip()) else line.replace("**", "").rstrip()
+            for line in text.splitlines()
+        ).strip()
+
+    plain = drop_bold(clean_markdown(answer))
+    # Bỏ ** có thể làm lộ ký hiệu đầu dòng từng bị bọc đậm ("**# Tiêu đề**") — làm sạch lại.
+    return drop_bold(clean_markdown(plain))
