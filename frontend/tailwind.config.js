@@ -1,27 +1,26 @@
 /** @type {import('tailwindcss').Config} */
-// Màu và font theo Brand Guideline Trường Việt Anh v2.0 (docs/Brand-Guideline-Viet-Anh-MASTER.docx):
-// Navy #26275D chủ đạo + Vàng #F9DD0E chỉ cho CTA/điểm nhấn; nền #F0F4F8; chữ #1A1A2E; viền #E2E8F0.
-// Font Be Vietnam Pro (chỉ sans-serif). Cỡ chữ tối thiểu 16px — đừng dùng text-xs/text-sm.
+// Việt Anh Design System — refactor 2026-07 "Học viện Quốc tế": navy #14153A, CTA vàng
+// gradient (chữ navy), gold #E8C40A cho điểm nhấn, nền kem #FAF9F4, viền #E7E5DA.
+// Font Manrope (chỉ sans-serif). Cỡ chữ tối thiểu 16px — đừng dùng text-xs/text-sm.
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Be Vietnam Pro"', 'Arial', 'sans-serif'],
+        sans: ['Manrope', 'Arial', 'sans-serif'],
       },
       colors: {
-        navy: { DEFAULT: '#26275D', dark: '#1B1C45', soft: '#E9EAF3' },
-        brand: { yellow: '#F9DD0E', 'yellow-dark': '#E5C900' },
-        surface: '#F0F4F8',
+        navy: { DEFAULT: '#14153A', 900: '#0D0E2B', 600: '#26275D', 400: '#565887', 100: '#E2E3F0' },
+        gold: { DEFAULT: '#E8C40A', text: '#7A5F00' },
+        brand: { yellow: '#F9DD0E' },
+        cream: { DEFAULT: '#FAF9F4', hover: '#FBF6DC' },
+        line: '#E7E5DA',
         ink: '#1A1A2E',
-        line: '#E2E8F0',
-        muted: '#555873',
-        danger: '#B42318',
-        success: '#1E7A4C',
+        muted: '#54556E',
+        success: '#1E7F4F',
+        danger: '#E03C31',
       },
-      boxShadow: {
-        card: '0 1px 2px rgba(38, 39, 93, .06), 0 8px 24px rgba(38, 39, 93, .06)',
-      },
+      borderRadius: { none: '0', sm: '3px', md: '6px', lg: '10px' },
     },
   },
   plugins: [],

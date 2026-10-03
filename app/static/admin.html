@@ -3,221 +3,329 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#26275D">
-<title>Quản trị · Trợ lý nội bộ Trường Việt Anh</title>
+<meta name="theme-color" content="#14153A">
+<title>Quản trị tri thức · Trường Việt Anh</title>
 <link rel="icon" type="image/png" href="/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  /* Brand Guideline Trường Việt Anh v2.0 (docs/Brand-Guideline-Viet-Anh-MASTER.docx):
-     Navy #26275D chủ đạo, Vàng #F9DD0E chỉ cho CTA (chữ trên nền vàng luôn là Navy),
-     nền #F0F4F8, chữ #1A1A2E, viền #E2E8F0; font Be Vietnam Pro, chỉ sans-serif,
-     cỡ chữ tối thiểu 16px — không thêm font-size nào nhỏ hơn 16px. */
+  /* Việt Anh Design System — refactor 2026-07 "Học viện Quốc tế" (docs/design handoff):
+     navy #14153A, CTA vàng gradient chữ navy, gold #E8C40A cho điểm nhấn, nền kem #FAF9F4,
+     viền #E7E5DA; font Manrope, chỉ sans-serif, cỡ chữ tối thiểu 16px; nút vuông. */
   :root {
-    --navy: #26275D; --navy-dark: #1B1C45; --navy-soft: #E9EAF3;
-    --yellow: #F9DD0E; --yellow-dark: #E5C900;
-    --surface: #F0F4F8; --panel: #FFFFFF; --ink: #1A1A2E; --muted: #555873; --line: #E2E8F0;
-    --danger: #B42318; --success: #1E7A4C;
-    --shadow: 0 1px 2px rgba(38,39,93,.06), 0 8px 24px rgba(38,39,93,.06);
+    --navy: #14153A; --navy-900: #0D0E2B; --navy-600: #26275D; --navy-100: #E2E3F0;
+    --cta: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); --gold: #E8C40A; --gold-text: #7A5F00;
+    --cream: #FAF9F4; --cream-hover: #FBF6DC; --line: #E7E5DA; --ink: #1A1A2E; --muted: #54556E; --placeholder: #8A8BA3;
+    --success: #1E7F4F; --danger: #E03C31; --ease: cubic-bezier(.4,0,.2,1);
+    --dark-bg: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(160deg, #14153A 0%, #1C1D4A 100%);
   }
   * { box-sizing: border-box; }
-  html { font-size: 16px; }
-  body { margin: 0; color: var(--ink); background: var(--surface); font-family: 'Be Vietnam Pro', Arial, sans-serif; font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  html, body { margin: 0; height: 100%; }
+  body { color: var(--ink); background: var(--cream); font-family: 'Manrope', Arial, sans-serif; font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
   button, input, select, textarea { font: inherit; font-size: 16px; }
-  h1, h2, h3 { color: var(--navy); }
-  :focus-visible { outline: 3px solid rgba(38,39,93,.35); outline-offset: 2px; }
+  a { color: var(--navy-600); text-decoration: none; font-weight: 600; }
+  a:hover { color: var(--navy); text-decoration: underline; text-underline-offset: 4px; }
+  input::placeholder, textarea::placeholder { color: var(--placeholder); }
+  :focus-visible { outline: 3px solid var(--navy-100); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .rule { width: 34px; height: 2px; background: var(--gold); }
 
-  /* ---- header ---- */
-  /* Vùng an toàn quanh logo >= chiều cao chữ "V" trong logo (~27% chiều cao logo). */
-  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 18px 28px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-  .brand { display: flex; align-items: center; gap: 20px; min-width: 0; }
-  .brand-logo { display: block; width: 170px; height: auto; flex-shrink: 0; }
-  .brand-divider { width: 1px; align-self: stretch; background: var(--line); }
-  header h1 { font-size: 20px; margin: 0; line-height: 1.2; font-weight: 800; }
-  header small { display: block; margin-top: 2px; color: var(--muted); font-size: 16px; font-weight: 500; }
-  @media (max-width: 640px) { header { padding: 16px; } .brand-divider, header .brand > div { display: none; } .brand-logo { width: 140px; } }
-
-  /* ---- buttons ---- */
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--navy); color: #fff; border: 1px solid var(--navy); padding: 10px 18px; border-radius: 12px; cursor: pointer; font-size: 16px; font-weight: 700; transition: background .15s, border-color .15s, transform .1s, opacity .15s; }
-  .btn:hover { background: var(--navy-dark); border-color: var(--navy-dark); }
-  .btn:active { transform: scale(.98); }
+  /* ---- nút (vuông, letter-spacing .03em, hover nhấc lên) ---- */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 26px; border: 1px solid transparent; border-radius: 0; font-weight: 700; letter-spacing: .03em; line-height: 1.2; cursor: pointer; white-space: nowrap; transition: transform .18s var(--ease), box-shadow .18s var(--ease); }
+  .btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(20,21,58,.12); }
+  .btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
-  /* CTA chính của trang: nền vàng, chữ Navy (không dùng chữ trắng trên nền vàng). */
-  .btn.cta { background: var(--yellow); border-color: var(--yellow); color: var(--navy); }
-  .btn.cta:hover { background: var(--yellow-dark); border-color: var(--yellow-dark); }
-  .btn.secondary { background: var(--panel); color: var(--navy); border-color: var(--line); font-weight: 600; }
-  .btn.secondary:hover { background: var(--surface); border-color: rgba(38,39,93,.35); }
-  .btn.danger { background: var(--danger); border-color: var(--danger); }
-  .btn.danger:hover { background: #912018; border-color: #912018; }
-  .btn.small { padding: 8px 14px; border-radius: 10px; }
-  .btn.ghost { background: var(--panel); color: var(--navy); border-color: var(--line); font-weight: 600; }
-  .btn.ghost:hover { background: var(--surface); }
+  .btn-primary { background: var(--cta); color: var(--navy); box-shadow: 0 6px 18px rgba(224,185,12,.30); }
+  .btn-secondary { background: var(--navy); color: #fff; }
+  .btn-outline { background: transparent; color: var(--navy); border-color: var(--navy); }
+  .btn-ghost { background: transparent; color: var(--navy-600); }
+  .btn-ghost:hover:not(:disabled) { box-shadow: none; }
+  .btn-danger { background: none; color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { border-color: var(--danger); box-shadow: none; transform: none; }
+  .btn-lg { padding: 16px 34px; font-size: 17px; }
+  .btn-sm { padding: 9px 16px; }
+  .btn-block { width: 100%; }
 
-  /* ---- login ---- */
-  #login { max-width: 440px; margin: 10vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 36px 32px; box-shadow: var(--shadow); }
-  #login .brand-logo { width: 230px; margin: 0 auto 24px; }
-  #login h2 { margin: 0 0 6px; font-size: 28px; text-align: center; font-weight: 800; }
-  #login p { margin: 0 0 22px; text-align: center; color: var(--muted); font-size: 16px; }
-  #login input { width: 100%; height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; font-size: 16px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s; }
-  #login input:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
-  #login .btn { width: 100%; height: 48px; }
-  .error { color: var(--danger); font-size: 16px; min-height: 24px; margin-top: 10px; text-align: center; }
+  /* ---- field ---- */
+  .field { display: flex; flex-direction: column; gap: 6px; font-weight: 700; color: var(--navy); }
+  .field input, .field select, .field textarea { height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-weight: 400; outline: none; transition: border-color .15s, box-shadow .15s, background .15s; }
+  .field select { padding: 0 12px; }
+  .field input:focus, .field select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px var(--navy-100); }
+  .field textarea { height: auto; min-height: 320px; padding: 14px 16px; background: var(--cream); line-height: 1.65; resize: vertical; }
+  .field textarea:focus { border-color: var(--navy); background: #fff; }
+  .field.full { grid-column: 1 / -1; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  .muted { margin: 0; color: var(--muted); line-height: 1.6; }
 
-  /* ---- layout ---- */
-  main { max-width: 1320px; margin: 0 auto; padding: 24px 22px 60px; display: none; }
-  .layout { display: grid; grid-template-columns: 420px minmax(0,1fr); gap: 22px; align-items: start; }
-  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; }
-  .panel-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-  .panel-head strong { font-size: 18px; font-weight: 800; color: var(--navy); }
-  .panel-head select { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 16px; color: var(--ink); }
-  .panel-head-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
-  .panel-head-actions .btn { width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .list-search { padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .list-search input { width: 100%; min-width: 0; height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 16px; outline: none; }
-  .list-search input:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
-  .list-summary { padding: 10px 16px 0; color: var(--muted); font-size: 16px; }
+  /* ---- đăng nhập token ---- */
+  #login { min-height: 100%; display: grid; place-items: center; padding: 32px 20px; background-color: var(--navy); background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(135deg, #14153A 0%, #26275D 100%); background-size: 18px 18px, 100% 100%; }
+  .login-card { width: 100%; max-width: 440px; background: #fff; padding: 44px 40px 36px; border-radius: 10px; box-shadow: 0 24px 60px rgba(13,14,43,.35); }
+  .login-card img { display: block; width: 170px; height: auto; margin-top: 24px; }
+  .login-card h1 { margin: 32px 0 0; font-size: 30px; font-weight: 800; color: var(--navy); line-height: 1.2; }
+  .login-card .muted { margin-top: 8px; }
+  .login-card .field { margin-top: 28px; }
+  .login-card .field input { height: 50px; padding: 0 16px; }
+  .login-error { margin: 10px 0 0; color: var(--danger); min-height: 0; }
+  .login-card .btn { margin-top: 20px; }
+  .login-card .back { display: block; margin-top: 20px; text-align: center; }
 
-  /* ---- note list ---- */
-  #list { max-height: 72vh; overflow: auto; }
-  .note-row { padding: 14px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .12s; }
-  .note-row:last-child { border-bottom: none; }
-  .note-row:hover { background: var(--surface); }
-  .note-row.active { background: var(--navy-soft); box-shadow: inset 4px 0 0 var(--navy); }
-  .note-row.gap-flag { box-shadow: inset 4px 0 0 var(--yellow); }
-  .note-row.gap-flag.active { box-shadow: inset 4px 0 0 var(--navy); }
-  .note-row .row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .note-row .title { font-weight: 700; font-size: 16px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note-row .meta { color: var(--muted); font-size: 16px; margin-top: 4px; }
-  .note-row .preview { color: var(--muted); font-size: 16px; margin-top: 6px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* ---- khung app ---- */
+  #app { height: 100%; display: flex; }
+  nav.side { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 28px 16px 20px; color: #fff; background-color: var(--navy); background-image: var(--dark-bg); background-size: 18px 18px, 100% 100%; }
+  .side-brand { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 28px; }
+  .wordmark { font-weight: 800; letter-spacing: .14em; }
+  .side-brand .sub { font-weight: 600; color: var(--gold); }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: transparent; border: 0; border-radius: 0; text-align: left; white-space: nowrap; color: #C9CAE0; font-weight: 600; cursor: pointer; transition: background .15s; }
+  .nav-item:hover { background: rgba(255,255,255,.06); }
+  .nav-item .dot { width: 6px; height: 6px; flex-shrink: 0; background: transparent; }
+  .nav-item.active { background: rgba(255,255,255,.09); color: #fff; font-weight: 700; }
+  .nav-item.active .dot { background: var(--gold); }
+  .nav-count { margin-left: auto; padding: 0 8px; background: #F9DD0E; color: var(--navy); font-weight: 800; line-height: 1.5; }
+  .side-foot { margin-top: auto; padding: 16px 12px 0; border-top: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; gap: 12px; }
+  .side-foot a { color: #E2E3F0; }
+  .side-foot a:hover { color: #fff; }
+  .btn-dark { height: 42px; background: transparent; border: 1px solid rgba(255,255,255,.18); border-radius: 0; color: #E2E3F0; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
+  .btn-dark:hover { border-color: rgba(255,255,255,.45); color: #fff; }
 
-  .badge { display: inline-block; padding: 2px 12px; border-radius: 999px; font-size: 16px; font-weight: 700; line-height: 1.5; background: #FFF6BF; color: #5C4D00; flex-shrink: 0; }
-  .badge.approved { background: #DCF2E5; color: #14532D; }
-  .badge.rejected { background: #FDE2E0; color: #8A1C14; }
-  .badge.unknown { background: var(--navy-soft); color: var(--navy); }
+  .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--cream); }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+  .topbar .crumb { font-weight: 700; color: var(--gold-text); }
+  .topbar h1 { margin: 2px 0 0; font-size: 24px; font-weight: 800; color: var(--navy); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .actions-slot { flex-shrink: 0; white-space: nowrap; }
+  .content { flex: 1; min-height: 0; overflow: auto; }
 
-  .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-size: 16px; }
-
-  /* ---- editor ---- */
-  #editor { padding: 22px; }
-  #editor label { display: block; font-size: 16px; font-weight: 700; color: var(--navy); margin: 16px 0 6px; }
-  #editor label:first-child { margin-top: 0; }
-  #editor input, #editor select, #editor textarea {
-    width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
-    font-size: 16px; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s;
+  @media (max-width: 820px) {
+    #app { flex-direction: column; }
+    nav.side { width: 100%; flex-direction: row; padding: 8px 12px; overflow-x: auto; }
+    .side-brand, .side-foot { display: none; }
+    .nav-count { margin-left: 8px; }
+    .topbar { padding: 14px 16px; }
+    .topbar h1 { font-size: 20px; }
   }
-  #editor input:focus, #editor select:focus, #editor textarea:focus { border-color: var(--navy); box-shadow: 0 0 0 4px rgba(38,39,93,.12); }
-  #editor textarea { min-height: 360px; line-height: 1.6; resize: vertical; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-  @media (max-width: 560px) { .meta-grid { grid-template-columns: 1fr; } }
-  .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--line); }
-  .placeholder { padding: 90px 24px; text-align: center; color: var(--muted); font-size: 16px; line-height: 1.6; }
 
-  /* ---- stats ---- */
-  .stats-summary { display: flex; gap: 12px; padding: 22px 22px 0; flex-wrap: wrap; }
-  .stat-card { flex: 1; min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
-  .stat-card .value { font-size: 32px; font-weight: 800; color: var(--navy); line-height: 1.2; }
-  .stat-card .label { margin-top: 4px; font-size: 16px; color: var(--muted); }
-  .stats-section { padding: 22px; }
-  .stats-section h3 { margin: 0 0 12px; font-size: 18px; font-weight: 800; }
-  .stat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
-  .stat-row:last-child { border-bottom: none; }
-  .stat-row .rank { flex-shrink: 0; width: 28px; color: var(--muted); font-weight: 700; }
-  .stat-row .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .stat-row .count { flex-shrink: 0; background: var(--navy); color: #fff; border-radius: 999px; padding: 2px 12px; font-size: 16px; font-weight: 700; }
-  .muted-note { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  .page { max-width: 820px; padding: 28px; }
+  .page .card { padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 20px; border-top: 1px solid var(--line); }
+  @media (max-width: 640px) { .page { padding: 16px; } .page .card { padding: 20px; } }
 
-  /* ---- toast ---- */
-  #toast { position: fixed; top: 18px; right: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
-  .toast-item { background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 12px; font-size: 16px; box-shadow: var(--shadow); max-width: 380px; animation: toast-in .2s ease both; }
-  .toast-item.error { background: var(--danger); }
-  @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  /* ---- tri thức ---- */
+  .notes-grid { display: grid; grid-template-columns: 400px minmax(0,1fr); gap: 24px; padding: 24px 28px 40px; align-items: start; }
+  @media (max-width: 1100px) { .notes-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .notes-grid { padding: 16px; } }
+  .notes-list { overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tab { flex: 1; padding: 14px 10px 12px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .tab.active { border-bottom-color: var(--navy); color: var(--navy); font-weight: 700; }
+  .list-tools { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .list-tools input { height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--cream); color: var(--ink); outline: none; }
+  .list-tools input:focus { border-color: var(--navy); background: #fff; }
+  .list-tools span { color: var(--muted); }
+  #list { max-height: 64vh; overflow-y: auto; }
+  .empty { margin: 0; padding: 48px 20px; text-align: center; color: var(--muted); }
+  .note-row { padding: 16px 20px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background .15s; }
+  .note-row:last-child { border-bottom: 0; }
+  .note-row:hover { background: var(--cream-hover); }
+  .note-row.active { background: #F2F1EA; }
+  .row-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .row-title { font-weight: 700; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-meta { margin-top: 4px; color: var(--muted); }
+  .row-meta.gap { color: var(--gold-text); font-weight: 700; }
+  .row-preview { margin-top: 6px; line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .badge { flex-shrink: 0; padding: 1px 10px; border-radius: 3px; font-weight: 700; background: #FBF6DC; color: #6B5600; }
+  .badge.approved, .badge.active { background: #E3F2EA; color: #14532D; }
+  .badge.rejected, .badge.revoked { background: #FCE4E2; color: #8A1C14; }
 
-  /* ---- upload drop zone ---- */
-  .drop-zone { border: 2px dashed var(--line); border-radius: 16px; padding: 36px 16px; text-align: center; color: var(--muted); cursor: pointer; font-size: 16px; transition: border-color .15s, background .15s; }
-  .drop-zone:hover { border-color: rgba(38,39,93,.35); }
-  .drop-zone.drag { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); }
-  .drop-zone small { display: block; margin-top: 6px; color: var(--muted); font-size: 16px; }
+  .editor-empty { padding: 96px 32px; text-align: center; }
+  .editor-empty .rule { margin: 0 auto 20px; }
+  .editor-empty p:first-of-type { margin: 0; font-size: 18px; font-weight: 700; color: var(--navy); }
+  .editor-empty p + p { margin: 8px 0 0; color: var(--muted); }
+  .editor-body { padding: 28px; }
+  @media (max-width: 640px) { .editor-body { padding: 20px; } }
+  .gap-box { margin-bottom: 20px; padding: 14px 16px; background: var(--cream-hover); border-radius: 6px; line-height: 1.6; }
+  .gap-box strong { color: var(--navy); }
+  .editor-body > .field { margin-top: 20px; }
+  .editor-body .actions { margin-top: 24px; }
+  .editor-body .actions .btn-danger { margin-left: auto; }
+
+  /* ---- upload ---- */
+  .drop-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 20px; background: #fff; border: 2px dashed #D6D3C4; border-radius: 10px; cursor: pointer; text-align: center; transition: background .15s, border-color .15s; }
+  .drop-zone:hover { border-color: var(--navy); }
+  .drop-zone.drag { background: var(--navy-100); border-color: var(--navy); }
+  .drop-zone.picked { background: var(--cream-hover); }
+  .drop-zone strong { font-size: 18px; color: var(--navy); }
+  .drop-zone span { color: var(--muted); }
+
+  /* ---- thống kê ---- */
+  .stats { max-width: 1040px; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+  .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .stat-card { padding: 24px; }
+  .stat-card .value { margin-top: 16px; font-size: 40px; font-weight: 800; color: var(--navy); line-height: 1.1; }
+  .stat-card .label { margin-top: 6px; color: var(--muted); }
+  .stat-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
+  @media (max-width: 640px) { .stats { padding: 16px; } .stat-lists { grid-template-columns: 1fr; } }
+  .stat-list { padding: 24px; }
+  .stat-list h2 { margin: 0 0 8px; font-size: 18px; font-weight: 800; color: var(--navy); }
+  .stat-row { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .stat-row:last-child { border-bottom: 0; }
+  .stat-row .rank { font-weight: 700; color: var(--gold-text); }
+  .stat-row .mid { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .stat-row .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-row .bar { height: 4px; background: var(--navy-100); }
+  .stat-row .bar i { display: block; height: 100%; background: var(--navy); }
+  .stat-row .count { font-weight: 800; color: var(--navy); }
 
   /* ---- API nhúng ---- */
-  .key-block { padding: 18px 0; border-bottom: 1px solid var(--line); }
-  .key-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-  .key-head strong { font-size: 18px; color: var(--navy); }
-  .key-head .badge { margin-left: 8px; }
-  .key-actions { display: flex; gap: 8px; }
-  .integration-card { margin-top: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
-  .integration-card h3 { margin: 0; font-size: 18px; font-weight: 800; }
-  .integration-card p { margin: 8px 0 14px; color: var(--muted); font-size: 16px; line-height: 1.6; }
-  .code-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
-  .code-row textarea { flex: 1; min-width: 0; margin: 0 !important; min-height: 48px !important; resize: vertical; }
-  .code-row .btn { flex-shrink: 0; align-self: flex-start; }
-  .integration-note { margin-top: 12px; padding: 10px 14px; border-left: 4px solid var(--yellow); background: #FFFBE0; color: var(--ink); font-size: 16px; line-height: 1.6; }
-  .key-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--muted); font-size: 16px; }
-  .key-meta strong { color: var(--ink); }
+  .keys { max-width: 900px; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+  @media (max-width: 640px) { .keys { padding: 16px; } }
+  .keys > .card:first-child { padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+  .keys h2 { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy); }
+  .key-card { overflow: hidden; }
+  .key-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 28px; border-bottom: 1px solid var(--line); }
+  .key-head .name { display: flex; align-items: center; gap: 10px; }
+  .key-head .name strong { font-size: 18px; color: var(--navy); }
+  .key-head .meta { color: var(--muted); }
+  .key-head .btns { display: flex; gap: 8px; }
+  .key-body { padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; background: var(--cream); }
+  .key-body > .label { font-weight: 700; color: var(--gold-text); }
+  .snippet { display: flex; flex-direction: column; gap: 6px; }
+  .snippet > span { font-weight: 700; color: var(--navy); }
+  .snippet .box { display: flex; align-items: stretch; background: #fff; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .snippet pre { flex: 1; min-width: 0; margin: 0; padding: 12px 14px; font-family: 'Manrope', Arial, sans-serif; font-size: 16px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+  .snippet button { flex-shrink: 0; padding: 0 16px; background: #fff; border: 0; border-left: 1px solid var(--line); border-radius: 0; font-weight: 700; color: var(--navy-600); cursor: pointer; }
+  .snippet button:hover { background: var(--cream-hover); }
+  .note-box { margin: 4px 0 0; padding: 12px 14px; background: var(--cream-hover); border-radius: 6px; }
+  .note-box strong { color: var(--navy); }
+
+  /* ---- toast ---- */
+  #toast { position: fixed; top: 20px; right: 20px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { max-width: 380px; padding: 14px 18px; background: var(--navy); color: #fff; font-weight: 600; box-shadow: 0 12px 28px rgba(13,14,43,.25); animation: vaToast .2s var(--ease) both; }
+  .toast-item.error { background: var(--danger); }
+  @keyframes vaToast { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <img class="brand-logo" src="/brand/logo-vietanh.webp" alt="Trường Việt Anh">
-    <span class="brand-divider" aria-hidden="true"></span>
-    <div>
-      <h1>Quản trị tri thức</h1>
-      <small>Trợ lý nội bộ · Admin</small>
-    </div>
-  </div>
-  <button class="btn ghost small" id="logoutBtn" style="display:none">Đăng xuất</button>
-</header>
 
-<div id="login">
-  <img class="brand-logo" src="/brand/logo-vietanh.webp" alt="Trường Việt Anh">
-  <h2>Đăng nhập quản trị</h2>
-  <p>Nhập admin token để quản lý nội dung tri thức.</p>
-  <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off" aria-label="Admin token">
-  <button class="btn cta" id="loginBtn">Vào trang quản trị</button>
-  <div class="error" id="loginError"></div>
+<div id="login" hidden>
+  <div class="login-card">
+    <div class="rule"></div>
+    <img src="/brand/logo-vietanh.webp" alt="Trường Việt Anh">
+    <h1>Quản trị tri thức</h1>
+    <p class="muted">Nhập admin token để quản lý nội dung trợ lý nội bộ.</p>
+    <label class="field">Admin token
+      <input id="tokenInput" type="password" placeholder="••••••••••••" autocomplete="off">
+    </label>
+    <p class="login-error" id="loginError" role="alert"></p>
+    <button class="btn btn-primary btn-lg btn-block" id="loginBtn">Vào trang quản trị →</button>
+    <a class="back" href="/">← Về trợ lý nội bộ</a>
+  </div>
 </div>
 
-<main id="app">
-  <div id="toast"></div>
-  <div class="layout">
-    <div class="panel">
-      <div class="panel-head">
-        <strong>Danh sách note</strong>
-        <select id="statusFilter" aria-label="Lọc theo trạng thái">
-          <option value="draft">Chờ duyệt (draft)</option>
-          <option value="approved">Đã duyệt</option>
-          <option value="rejected">Đã từ chối</option>
-          <option value="all">Tất cả</option>
-        </select>
-      </div>
-      <div class="panel-head-actions">
-        <button class="btn small cta" id="newNoteBtn">+ Note mới</button>
-        <button class="btn small secondary" id="uploadBtn">Upload file</button>
-        <button class="btn small secondary" id="statsBtn">Thống kê</button>
-        <button class="btn small secondary" id="apiKeysBtn">API nhúng</button>
-      </div>
-      <div class="list-search"><input id="noteSearch" type="search" placeholder="Tìm tiêu đề, phòng ban..." aria-label="Tìm note theo tiêu đề, phòng ban hoặc nội dung"></div>
-      <div class="list-summary" id="listSummary" aria-live="polite"></div>
-      <div id="list"></div>
+<div id="app" hidden>
+  <nav class="side" aria-label="Điều hướng quản trị">
+    <div class="side-brand"><span class="wordmark">TRƯỜNG VIỆT ANH</span><span class="sub">Quản trị tri thức</span></div>
+    <button class="nav-item" data-view="notes"><span class="dot"></span>Tri thức<span class="nav-count" id="draftCount" hidden></span></button>
+    <button class="nav-item" data-view="upload"><span class="dot"></span>Upload file</button>
+    <button class="nav-item" data-view="stats"><span class="dot"></span>Thống kê</button>
+    <button class="nav-item" data-view="keys"><span class="dot"></span>API nhúng</button>
+    <div class="side-foot">
+      <a href="/">← Về trợ lý nội bộ</a>
+      <button class="btn-dark" id="logoutBtn">Đăng xuất</button>
     </div>
-    <div class="panel" id="editorPanel">
-      <div class="panel-head"><strong id="editorTitle">Chọn một note để xem chi tiết</strong></div>
-      <div id="editor"><div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Note mới" / "Upload file".</div></div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div style="min-width: 0;">
+        <div class="crumb" id="crumb">Tri thức</div>
+        <h1 id="pageTitle">Danh sách note</h1>
+      </div>
+      <div class="actions-slot"><button class="btn btn-primary" id="newNoteBtn">+ Note mới</button></div>
+    </header>
+
+    <div class="content">
+      <!-- Tri thức -->
+      <div class="notes-grid" id="view-notes">
+        <section class="card notes-list">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-status="draft">Chờ duyệt</button>
+            <button class="tab" data-status="approved">Đã duyệt</button>
+            <button class="tab" data-status="rejected">Từ chối</button>
+            <button class="tab" data-status="all">Tất cả</button>
+          </div>
+          <div class="list-tools">
+            <input id="noteSearch" type="search" placeholder="Tìm tiêu đề, phòng ban…" aria-label="Tìm note theo tiêu đề, phòng ban hoặc nội dung">
+            <span id="listSummary" aria-live="polite"></span>
+          </div>
+          <div id="list"></div>
+        </section>
+        <section class="card" id="editorPanel"><div id="editor"></div></section>
+      </div>
+
+      <!-- Note mới -->
+      <div class="page" id="view-new" hidden>
+        <section class="card">
+          <div class="grid-2">
+            <label class="field">Tiêu đề<input id="newTitle" placeholder="Vd: Quy định nghỉ phép 2026"></label>
+            <label class="field">Phòng ban<select id="newDepartment"></select></label>
+          </div>
+          <label class="field">Nội dung (Markdown)<textarea id="newContent" placeholder="Nhập nội dung quy định…" style="min-height: 340px;"></textarea></label>
+          <div class="actions">
+            <button class="btn btn-secondary" id="createApprovedBtn">Lưu &amp; duyệt luôn</button>
+            <button class="btn btn-outline" id="createDraftBtn">Lưu nháp</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Upload -->
+      <div class="page" id="view-upload" hidden>
+        <section class="card">
+          <div class="grid-2">
+            <label class="field">Phòng ban<select id="uploadDepartment"></select></label>
+            <label class="field">Tiêu đề (tuỳ chọn)<input id="uploadTitle" placeholder="Để trống sẽ lấy theo tên file"></label>
+          </div>
+          <button type="button" class="drop-zone" id="dropZone"><strong id="dropTitle">Kéo thả file vào đây, hoặc bấm để chọn</strong><span>.md .txt .csv .json .pdf .docx · tối đa 10MB</span></button>
+          <input type="file" id="uploadFileInput" hidden accept=".md,.txt,.csv,.json,.pdf,.docx">
+          <p class="muted">File được duyệt tự động và trợ lý dùng được ngay. Kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
+          <div class="actions"><button class="btn btn-secondary" id="uploadSubmitBtn" disabled>Upload &amp; duyệt tự động</button></div>
+        </section>
+      </div>
+
+      <!-- Thống kê -->
+      <div class="stats" id="view-stats" hidden></div>
+
+      <!-- API nhúng -->
+      <div class="keys" id="view-keys" hidden></div>
     </div>
   </div>
-</main>
+</div>
+
+<div id="toast"></div>
 
 <script>
 const API = "/api/admin";
 const DEPARTMENTS = ["Unassigned", "HR", "Finance", "Academic", "Admin"];
 const ACCESS_LEVELS = ["staff", "manager", "admin"];
 const STATUSES = ["draft", "approved", "rejected"];
+const STATUS_LABELS = { draft: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối" };
+const ACCESS_LABELS = { staff: "Nhân viên", manager: "Quản lý", admin: "Quản trị" };
+const VIEWS = {
+  notes: { crumb: "Tri thức", title: "Danh sách note", nav: "notes" },
+  new: { crumb: "Tri thức", title: "Note mới", nav: "notes" },
+  upload: { crumb: "Tri thức", title: "Upload file", nav: "upload" },
+  stats: { crumb: "Báo cáo", title: "Thống kê câu hỏi", nav: "stats" },
+  keys: { crumb: "Tích hợp", title: "API nhúng", nav: "keys" },
+};
 let token = sessionStorage.getItem("admin_token") || "";
 let notes = [];
 let currentId = null;
 let listQuery = "";
+let statusFilter = "draft";
+let view = "notes";
+
+const $ = (id) => document.getElementById(id);
 
 function headers() { return { "X-Admin-Token": token, "Content-Type": "application/json" }; }
 
@@ -248,160 +356,188 @@ async function apiUpload(path, formData) {
 }
 
 function toast(message, isError) {
-  const container = document.getElementById("toast");
   const item = document.createElement("div");
   item.className = `toast-item ${isError ? "error" : ""}`;
   item.textContent = message;
-  container.appendChild(item);
+  $("toast").appendChild(item);
   setTimeout(() => item.remove(), 5000);
-}
-
-function showLogin(message) {
-  document.getElementById("login").style.display = "block";
-  document.getElementById("app").style.display = "none";
-  document.getElementById("logoutBtn").style.display = "none";
-  document.getElementById("loginError").textContent = message || "";
-}
-
-function showApp() {
-  document.getElementById("login").style.display = "none";
-  document.getElementById("app").style.display = "block";
-  document.getElementById("logoutBtn").style.display = "inline-block";
-  loadNotes();
-}
-
-document.getElementById("loginBtn").onclick = () => {
-  const value = document.getElementById("tokenInput").value.trim();
-  if (!value) return;
-  token = value;
-  sessionStorage.setItem("admin_token", token);
-  showApp();
-};
-
-document.getElementById("tokenInput").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") document.getElementById("loginBtn").click();
-});
-
-document.getElementById("logoutBtn").onclick = () => {
-  sessionStorage.removeItem("admin_token");
-  token = "";
-  showLogin();
-};
-
-document.getElementById("statusFilter").onchange = loadNotes;
-document.getElementById("noteSearch").oninput = (event) => {
-  listQuery = event.target.value.trim().toLocaleLowerCase("vi");
-  renderList();
-};
-
-function revealEditorOnMobile() {
-  if (!window.matchMedia("(max-width: 900px)").matches) return;
-  requestAnimationFrame(() => document.getElementById("editorPanel").scrollIntoView({ behavior: "smooth", block: "start" }));
-}
-
-async function loadNotes() {
-  const status = document.getElementById("statusFilter").value;
-  try {
-    notes = await api(`/notes?status=${status}`);
-  } catch (error) {
-    if (error.message === "unauthorized") return;
-    document.getElementById("list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
-    return;
-  }
-  renderList();
-}
-
-function renderList() {
-  const list = document.getElementById("list");
-  const visibleNotes = notes.filter(note => [note.title, note.department, note.preview].some(value => String(value || "").toLocaleLowerCase("vi").includes(listQuery)));
-  document.getElementById("listSummary").textContent = listQuery ? `${visibleNotes.length}/${notes.length} note phù hợp` : `${notes.length} note`;
-  if (!notes.length) {
-    list.innerHTML = '<div class="empty">Không có note nào.</div>';
-    return;
-  }
-  if (!visibleNotes.length) {
-    list.innerHTML = '<div class="empty">Không tìm thấy note phù hợp. Thử từ khóa khác.</div>';
-    return;
-  }
-  list.innerHTML = visibleNotes.map(note => {
-    const isGap = note.title.startsWith("[CẦN BỔ SUNG]");
-    const title = isGap ? note.title.replace("[CẦN BỔ SUNG] ", "") : note.title;
-    return `
-    <div class="note-row ${note.id === currentId ? 'active' : ''} ${isGap ? 'gap-flag' : ''}" data-id="${note.id}">
-      <div class="row-top">
-        <div class="title">${isGap ? '❓ ' : ''}${escapeHtml(title)}</div>
-        <span class="badge ${note.status}">${note.status}</span>
-      </div>
-      <div class="meta">${isGap ? 'Câu hỏi chưa có dữ liệu trả lời' : `${escapeHtml(note.department)} · v${escapeHtml(note.version)}`}</div>
-      <div class="preview">${escapeHtml(note.preview)}</div>
-    </div>
-  `;
-  }).join("");
-  list.querySelectorAll(".note-row").forEach(row => {
-    row.onclick = () => openNote(row.dataset.id);
-  });
 }
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function showLogin(message) {
+  $("login").hidden = false;
+  $("app").hidden = true;
+  $("loginError").textContent = message || "";
+}
+
+function showApp() {
+  $("login").hidden = true;
+  $("app").hidden = false;
+  fillDepartmentSelects();
+  setView("notes");
+  loadNotes();
+}
+
+$("loginBtn").onclick = () => {
+  const value = $("tokenInput").value.trim();
+  if (!value) return;
+  token = value;
+  sessionStorage.setItem("admin_token", token);
+  showApp();
+};
+$("tokenInput").addEventListener("keydown", (event) => { if (event.key === "Enter") $("loginBtn").click(); });
+$("logoutBtn").onclick = () => { sessionStorage.removeItem("admin_token"); token = ""; showLogin(); };
+
+/* ---- điều hướng ---- */
+function setView(name) {
+  view = name;
+  const meta = VIEWS[name];
+  $("crumb").textContent = meta.crumb;
+  $("pageTitle").textContent = meta.title;
+  $("newNoteBtn").parentElement.hidden = name === "new";
+  for (const key of Object.keys(VIEWS)) $(`view-${key}`).hidden = key !== name;
+  document.querySelectorAll(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === meta.nav));
+  if (name === "upload") resetUpload();
+  if (name === "stats") renderStats();
+  if (name === "keys") renderApiKeys();
+}
+document.querySelectorAll(".nav-item").forEach(btn => { btn.onclick = () => setView(btn.dataset.view); });
+$("newNoteBtn").onclick = () => { $("newTitle").value = ""; $("newContent").value = ""; $("newDepartment").value = "Unassigned"; setView("new"); };
+
+function departmentOptions(selected) {
+  const options = DEPARTMENTS.includes(selected) || !selected ? DEPARTMENTS : [selected, ...DEPARTMENTS];
+  return options.map(dep => `<option value="${escapeHtml(dep)}" ${dep === selected ? "selected" : ""}>${escapeHtml(dep)}</option>`).join("");
+}
+function fillDepartmentSelects() {
+  $("newDepartment").innerHTML = departmentOptions("Unassigned");
+  $("uploadDepartment").innerHTML = departmentOptions("Unassigned");
+}
+function optionsFor(values, selected, labels = {}) {
+  const options = values.includes(selected) ? values : [selected, ...values];
+  return options.map(opt => `<option value="${escapeHtml(opt)}" ${opt === selected ? "selected" : ""}>${escapeHtml(labels[opt] || opt)}</option>`).join("");
+}
+
+/* ---- tri thức ---- */
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.onclick = () => {
+    statusFilter = tab.dataset.status;
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
+    loadNotes();
+  };
+});
+$("noteSearch").oninput = (event) => { listQuery = event.target.value.trim().toLocaleLowerCase("vi"); renderList(); };
+
+async function loadDraftCount() {
+  try {
+    const drafts = statusFilter === "draft" ? notes : await api("/notes?status=draft");
+    $("draftCount").textContent = drafts.length;
+    $("draftCount").hidden = drafts.length === 0;
+  } catch { /* chỉ là số đếm phụ */ }
+}
+
+async function loadNotes() {
+  try {
+    notes = await api(`/notes?status=${statusFilter}`);
+  } catch (error) {
+    if (error.message === "unauthorized") return;
+    $("list").innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  renderList();
+  if (!currentId) resetEditor();
+  loadDraftCount();
+}
+
+function isGapNote(note) { return String(note.title || "").startsWith("[CẦN BỔ SUNG]"); }
+
+function renderList() {
+  const list = $("list");
+  const visible = notes.filter(note => [note.title, note.department, note.preview].some(value => String(value || "").toLocaleLowerCase("vi").includes(listQuery)));
+  $("listSummary").textContent = listQuery ? `${visible.length}/${notes.length} note phù hợp` : `${notes.length} note`;
+  if (!notes.length) { list.innerHTML = '<p class="empty">Không có note nào.</p>'; return; }
+  if (!visible.length) { list.innerHTML = '<p class="empty">Không tìm thấy note phù hợp.</p>'; return; }
+  list.innerHTML = visible.map(note => {
+    const gap = isGapNote(note);
+    const title = gap ? note.title.replace("[CẦN BỔ SUNG] ", "") : note.title;
+    return `
+    <div class="note-row ${note.id === currentId ? "active" : ""}" data-id="${escapeHtml(note.id)}">
+      <div class="row-top">
+        <span class="row-title">${escapeHtml(title)}</span>
+        <span class="badge ${escapeHtml(note.status)}">${escapeHtml(STATUS_LABELS[note.status] || note.status)}</span>
+      </div>
+      <div class="row-meta ${gap ? "gap" : ""}">${gap ? "Câu hỏi chưa có dữ liệu trả lời" : `${escapeHtml(note.department)} · v${escapeHtml(note.version)}`}</div>
+      ${note.preview ? `<div class="row-preview">${escapeHtml(note.preview)}</div>` : ""}
+    </div>`;
+  }).join("");
+  list.querySelectorAll(".note-row").forEach(row => { row.onclick = () => openNote(row.dataset.id); });
+}
+
+function resetEditor() {
+  $("editor").innerHTML = `
+    <div class="editor-empty">
+      <div class="rule"></div>
+      <p>Chọn một note để xem chi tiết</p>
+      <p>hoặc tạo note mới, upload file từ thanh bên.</p>
+    </div>`;
+}
+
+function revealEditorOnMobile() {
+  if (!window.matchMedia("(max-width: 1100px)").matches) return;
+  requestAnimationFrame(() => $("editorPanel").scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+
 async function openNote(id) {
+  if (view !== "notes") setView("notes");
   currentId = id;
   renderList();
-  document.getElementById("editorTitle").textContent = "Đang tải note...";
-  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải nội dung...</div>';
+  $("editor").innerHTML = '<p class="empty">Đang tải nội dung…</p>';
   revealEditorOnMobile();
   let note;
   try {
     note = await api(`/notes/detail?note_id=${encodeURIComponent(id)}`);
   } catch (error) {
     if (error.message === "unauthorized") return;
-    alert(error.message);
+    toast(error.message, true);
+    resetEditor();
     return;
   }
-  document.getElementById("editorTitle").textContent = note.title || id;
-  document.getElementById("editor").innerHTML = `
-    <div class="meta-grid">
-      <label>Tiêu đề</label><input data-field="title" value="${escapeHtml(note.title)}">
-      <label>Phòng ban</label><select data-field="department">${departmentOptions(note.department)}</select>
-      <label>Trạng thái</label><select data-field="status">${optionsFor(STATUSES, note.status)}</select>
-      <label>Version</label><input data-field="version" value="${escapeHtml(note.version)}">
-      <label>Quyền truy cập</label><select data-field="access_level">${optionsFor(ACCESS_LEVELS, note.access_level)}</select>
-    </div>
-    <label>Nội dung</label>
-    <textarea id="contentBox">${escapeHtml(note.content)}</textarea>
-    <div class="actions">
-      <button class="btn" id="saveBtn">Lưu thay đổi</button>
-      <button class="btn" id="approveBtn">Duyệt (approved)</button>
-      <button class="btn secondary" id="rejectBtn">Từ chối</button>
-      <button class="btn danger" id="deleteBtn">Xoá vĩnh viễn</button>
-    </div>
-  `;
-  document.getElementById("saveBtn").onclick = () => saveNote(id);
-  document.getElementById("approveBtn").onclick = () => setStatus(id, "approve");
-  document.getElementById("rejectBtn").onclick = () => setStatus(id, "reject");
-  document.getElementById("deleteBtn").onclick = () => deleteNote(id);
-}
-
-function optionsFor(values, selected) {
-  const options = values.includes(selected) ? values : [selected, ...values];
-  return options.map(opt => `<option value="${escapeHtml(opt)}" ${opt === selected ? "selected" : ""}>${escapeHtml(opt)}</option>`).join("");
+  $("editor").innerHTML = `
+    <div class="editor-body">
+      ${isGapNote(note) ? '<div class="gap-box"><strong>Câu hỏi chưa có dữ liệu.</strong> Nhân viên đã hỏi nhưng trợ lý không tìm thấy tài liệu. Bổ sung nội dung rồi duyệt để trợ lý trả lời được.</div>' : ""}
+      <div class="grid-2">
+        <label class="field full">Tiêu đề<input data-field="title" value="${escapeHtml(note.title)}"></label>
+        <label class="field">Phòng ban<select data-field="department">${departmentOptions(note.department)}</select></label>
+        <label class="field">Trạng thái<select data-field="status">${optionsFor(STATUSES, note.status, STATUS_LABELS)}</select></label>
+        <label class="field">Quyền truy cập<select data-field="access_level">${optionsFor(ACCESS_LEVELS, note.access_level, ACCESS_LABELS)}</select></label>
+        <label class="field">Version<input data-field="version" value="${escapeHtml(note.version)}"></label>
+      </div>
+      <label class="field">Nội dung (Markdown)<textarea id="contentBox">${escapeHtml(note.content)}</textarea></label>
+      <div class="actions">
+        <button class="btn btn-secondary" id="approveBtn">Duyệt &amp; đồng bộ</button>
+        <button class="btn btn-outline" id="saveBtn">Lưu thay đổi</button>
+        <button class="btn btn-ghost" id="rejectBtn">Từ chối</button>
+        <button class="btn btn-danger" id="deleteBtn">Xoá vĩnh viễn</button>
+      </div>
+    </div>`;
+  $("saveBtn").onclick = () => saveNote(id);
+  $("approveBtn").onclick = () => setStatus(id, "approve");
+  $("rejectBtn").onclick = () => setStatus(id, "reject");
+  $("deleteBtn").onclick = () => deleteNote(id);
 }
 
 function collectFields() {
   const fields = {};
-  document.querySelectorAll("[data-field]").forEach(input => {
-    fields[input.dataset.field] = input.value;
-  });
-  fields.content = document.getElementById("contentBox").value;
+  document.querySelectorAll("#editor [data-field]").forEach(input => { fields[input.dataset.field] = input.value; });
+  fields.content = $("contentBox").value;
   return fields;
 }
 
 async function saveNote(id) {
-  const body = collectFields();
   try {
-    await api(`/notes?note_id=${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) });
+    await api(`/notes?note_id=${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(collectFields()) });
     await loadNotes();
     toast("Đã lưu & đồng bộ AI.");
   } catch (error) {
@@ -433,168 +569,110 @@ async function deleteNote(id) {
   }
 }
 
-function resetEditor() {
-  document.getElementById("editor").innerHTML = '<div class="placeholder">Chọn note bên trái để xem và chỉnh sửa nội dung,<br>hoặc bấm "Tạo note mới" / "Upload file".</div>';
-  document.getElementById("editorTitle").textContent = "Chọn một note để xem chi tiết";
-}
-
-function departmentOptions(selected) {
-  return DEPARTMENTS.map(dep => `<option value="${dep}" ${dep === selected ? "selected" : ""}>${dep}</option>`).join("");
-}
-
-function showNewNoteForm() {
-  currentId = null;
-  renderList();
-  document.getElementById("editorTitle").textContent = "Tạo note mới";
-  document.getElementById("editor").innerHTML = `
-    <label>Tiêu đề</label>
-    <input id="newTitle" placeholder="Vd: Quy định nghỉ phép 2026">
-    <label>Phòng ban</label>
-    <select id="newDepartment">${departmentOptions("Unassigned")}</select>
-    <label>Nội dung (Markdown)</label>
-    <textarea id="newContent" placeholder="Nhập nội dung quy định..."></textarea>
-    <div class="actions">
-      <button class="btn" id="createDraftBtn">Lưu nháp (draft)</button>
-      <button class="btn secondary" id="createApprovedBtn">Lưu & Duyệt luôn</button>
-    </div>
-  `;
-  revealEditorOnMobile();
-  document.getElementById("createDraftBtn").onclick = () => createNote("draft");
-  document.getElementById("createApprovedBtn").onclick = () => createNote("approved");
-}
-
+/* ---- note mới ---- */
 async function createNote(status) {
-  const title = document.getElementById("newTitle").value.trim();
-  const department = document.getElementById("newDepartment").value;
-  const content = document.getElementById("newContent").value.trim();
+  const title = $("newTitle").value.trim();
+  const department = $("newDepartment").value;
+  const content = $("newContent").value.trim();
   if (!title || !content) { toast("Cần nhập tiêu đề và nội dung.", true); return; }
   try {
-    const result = await api("/notes/create", {
-      method: "POST",
-      body: JSON.stringify({ title, department, content, status }),
-    });
-    await loadNotes();
+    const result = await api("/notes/create", { method: "POST", body: JSON.stringify({ title, department, content, status }) });
     toast(status === "approved" ? "Đã tạo, duyệt & đồng bộ AI." : "Đã tạo note nháp.");
+    setView("notes");
+    await loadNotes();
     openNote(result.id);
   } catch (error) {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
 }
+$("createDraftBtn").onclick = () => createNote("draft");
+$("createApprovedBtn").onclick = () => createNote("approved");
 
-function showUploadForm() {
-  currentId = null;
-  renderList();
-  document.getElementById("editorTitle").textContent = "Upload file";
-  document.getElementById("editor").innerHTML = `
-    <label>Phòng ban</label>
-    <select id="uploadDepartment">${departmentOptions("Unassigned")}</select>
-    <label>Tiêu đề (tuỳ chọn)</label>
-    <input id="uploadTitle" placeholder="Để trống sẽ lấy theo tên file">
-    <label>File</label>
-    <div class="drop-zone" id="dropZone">Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small></div>
-    <input type="file" id="uploadFileInput" style="display:none" accept=".md,.txt,.csv,.json,.pdf,.docx">
-    <p class="muted-note" style="margin-top:14px">File sẽ được duyệt tự động và chatbot dùng được ngay — kiểm tra lại nội dung trong danh sách note nếu cần chỉnh sửa.</p>
-    <div class="actions"><button class="btn" id="uploadSubmitBtn" disabled>Upload & duyệt tự động</button></div>
-  `;
-  revealEditorOnMobile();
-  const dropZone = document.getElementById("dropZone");
-  const fileInput = document.getElementById("uploadFileInput");
-  const submitBtn = document.getElementById("uploadSubmitBtn");
-  let selectedFile = null;
-  const setFile = (file) => {
-    selectedFile = file;
-    submitBtn.disabled = !file;
-    dropZone.innerHTML = file ? `Đã chọn: <strong>${escapeHtml(file.name)}</strong>` : 'Kéo thả file vào đây, hoặc bấm để chọn<br><small>.md .txt .csv .json .pdf .docx — tối đa 10MB</small>';
-  };
-  dropZone.onclick = () => fileInput.click();
-  fileInput.onchange = () => setFile(fileInput.files?.[0] || null);
-  dropZone.ondragover = (event) => { event.preventDefault(); dropZone.classList.add("drag"); };
-  dropZone.ondragleave = () => dropZone.classList.remove("drag");
-  dropZone.ondrop = (event) => {
-    event.preventDefault();
-    dropZone.classList.remove("drag");
-    setFile(event.dataTransfer.files?.[0] || null);
-  };
-  submitBtn.onclick = async () => {
-    if (!selectedFile) return;
-    const form = new FormData();
-    form.append("file", selectedFile);
-    form.append("department", document.getElementById("uploadDepartment").value);
-    const title = document.getElementById("uploadTitle").value.trim();
-    if (title) form.append("title", title);
-    try {
-      const result = await apiUpload("/upload", form);
-      document.getElementById("statusFilter").value = "approved";
-      await loadNotes();
-      if (result.duplicate) {
-        toast(`${result.warning} Đã mở sẵn note nghi trùng để bạn kiểm tra.`, true);
-        await openNote(result.duplicate.note_id);
-      } else {
-        resetEditor();
-        toast("Đã upload & duyệt tự động — chatbot dùng được ngay. Kiểm tra lại trong danh sách nếu cần.");
-      }
-    } catch (error) {
-      if (error.message !== "unauthorized") toast(error.message, true);
-    }
-  };
+/* ---- upload ---- */
+let selectedFile = null;
+function setFile(file) {
+  selectedFile = file;
+  $("uploadSubmitBtn").disabled = !file;
+  $("dropZone").classList.toggle("picked", Boolean(file));
+  $("dropTitle").textContent = file ? `Đã chọn: ${file.name}` : "Kéo thả file vào đây, hoặc bấm để chọn";
 }
-
-async function showStats() {
-  currentId = null;
-  renderList();
-  document.getElementById("editorTitle").textContent = "Thống kê câu hỏi";
-  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải thống kê...</div>';
-  revealEditorOnMobile();
-  let data;
+function resetUpload() { $("uploadFileInput").value = ""; $("uploadTitle").value = ""; setFile(null); }
+$("dropZone").onclick = () => $("uploadFileInput").click();
+$("uploadFileInput").onchange = () => setFile($("uploadFileInput").files?.[0] || null);
+$("dropZone").ondragover = (event) => { event.preventDefault(); $("dropZone").classList.add("drag"); };
+$("dropZone").ondragleave = () => $("dropZone").classList.remove("drag");
+$("dropZone").ondrop = (event) => { event.preventDefault(); $("dropZone").classList.remove("drag"); setFile(event.dataTransfer.files?.[0] || null); };
+$("uploadSubmitBtn").onclick = async () => {
+  if (!selectedFile) return;
+  const form = new FormData();
+  form.append("file", selectedFile);
+  form.append("department", $("uploadDepartment").value);
+  const title = $("uploadTitle").value.trim();
+  if (title) form.append("title", title);
+  $("uploadSubmitBtn").disabled = true;
   try {
-    data = await api("/analytics");
-  } catch (error) {
-    if (error.message !== "unauthorized") {
-      document.getElementById("editor").innerHTML = `<div class="placeholder">${escapeHtml(error.message)}</div>`;
+    const result = await apiUpload("/upload", form);
+    statusFilter = "approved";
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.status === "approved"));
+    setView("notes");
+    await loadNotes();
+    if (result.duplicate) {
+      toast(`${result.warning} Đã mở sẵn note nghi trùng để bạn kiểm tra.`, true);
+      await openNote(result.duplicate.note_id);
+    } else {
+      toast("Đã upload & duyệt tự động — trợ lý dùng được ngay.");
     }
+  } catch (error) {
+    $("uploadSubmitBtn").disabled = !selectedFile;
+    if (error.message !== "unauthorized") toast(error.message, true);
+  }
+};
+
+/* ---- thống kê ---- */
+async function renderStats() {
+  const box = $("view-stats");
+  box.innerHTML = '<p class="empty">Đang tải thống kê…</p>';
+  let data, health = {};
+  try {
+    [data, health] = await Promise.all([api("/analytics"), fetch("/api/health").then(r => r.json()).catch(() => ({}))]);
+  } catch (error) {
+    if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
     return;
   }
   const groundedRate = data.scanned_logs ? Math.round((data.grounded_count / data.scanned_logs) * 100) : 0;
-  document.getElementById("editor").innerHTML = `
-    <div class="stats-summary">
-      <div class="stat-card"><div class="value">${data.scanned_logs}</div><div class="label">Lượt hỏi đã ghi nhận</div></div>
-      <div class="stat-card"><div class="value">${groundedRate}%</div><div class="label">Có trích dẫn nguồn</div></div>
+  const cards = [
+    [data.scanned_logs, "Lượt hỏi đã ghi nhận"],
+    [`${groundedRate}%`, "Câu trả lời có trích dẫn nguồn"],
+    [health.approved_notes ?? "—", "Tài liệu đã duyệt"],
+  ];
+  box.innerHTML = `
+    <div class="stat-cards">${cards.map(([value, label]) => `
+      <div class="card stat-card"><div class="rule"></div><div class="value">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div></div>`).join("")}
     </div>
-    <div class="stats-section">
-      <h3>Tài liệu được trích dẫn nhiều nhất</h3>
-      ${renderStatRows(data.top_sources, (row) => row.source)}
-    </div>
-    <div class="stats-section" style="padding-top:0">
-      <h3>Câu hỏi giống nhau được hỏi nhiều nhất</h3>
-      ${renderStatRows(data.top_questions, (row) => row.question)}
-    </div>
-  `;
+    <div class="stat-lists">
+      <section class="card stat-list"><h2>Tài liệu được trích dẫn nhiều nhất</h2>${renderStatRows(data.top_sources, row => row.source)}</section>
+      <section class="card stat-list"><h2>Câu hỏi được hỏi nhiều nhất</h2>${renderStatRows(data.top_questions, row => row.question)}</section>
+    </div>`;
 }
 
 function renderStatRows(rows, getText) {
-  if (!rows || !rows.length) return '<p class="muted-note">Chưa có dữ liệu.</p>';
+  if (!rows || !rows.length) return '<p class="muted">Chưa có dữ liệu.</p>';
+  const max = Math.max(...rows.map(row => row.count), 1);
   return rows.map((row, index) => `
     <div class="stat-row">
       <span class="rank">${index + 1}</span>
-      <span class="text" title="${escapeHtml(getText(row))}">${escapeHtml(getText(row))}</span>
+      <div class="mid"><span class="text" title="${escapeHtml(getText(row))}">${escapeHtml(getText(row))}</span><span class="bar"><i style="width: ${Math.round((row.count / max) * 100)}%"></i></span></div>
       <span class="count">${row.count}</span>
-    </div>
-  `).join("");
+    </div>`).join("");
 }
 
-function embedSnippet(key) {
-  const src = `${window.location.origin}/?embed_key=${key}`;
-  return `<iframe src="${src}" style="width:100%;height:640px;border:0;border-radius:12px;" title="Viet Anh Staff Assistant" allow="clipboard-write"></iframe>`;
+/* ---- API nhúng ---- */
+function widgetRequestSnippet() {
+  return `{
+  "question": "Nội dung người dùng hỏi",
+  "history": []
+}`;
 }
-
-function widgetApiSnippet(key) {
-  return `POST ${window.location.origin}/api/widget/chat
-X-Widget-Key: ${key}
-Content-Type: application/json
-
-{"question":"Tôi cần xin nghỉ phép trước bao lâu?","history":[]}`;
-}
-
 function widgetResponseSnippet() {
   return `{
   "answer": "...",
@@ -603,92 +681,70 @@ function widgetResponseSnippet() {
   "thread_id": null
 }`;
 }
-
-function widgetRequestSnippet() {
-  return `{
-  "question": "Nội dung người dùng hỏi",
-  "history": []
-}`;
+function copyText(value) {
+  navigator.clipboard?.writeText(value).then(() => toast("Đã copy")).catch(() => toast("Không thể copy tự động, hãy bôi đen và copy.", true));
 }
-
-function copyText(value, message = "Đã copy") {
-  navigator.clipboard?.writeText(value).then(() => toast(message)).catch(() => toast("Không thể copy tự động, hãy bôi đen và copy.", true));
-}
-
-function copyButton(value, label = "Copy") {
-  return `<button class="btn secondary small" type="button" data-copy="${escapeHtml(value)}">${label}</button>`;
-}
-
-async function showApiKeys() {
-  currentId = null;
-  renderList();
-  document.getElementById("editorTitle").textContent = "API nhúng cho trang nội bộ khác";
-  document.getElementById("editor").innerHTML = '<div class="placeholder">Đang tải danh sách key...</div>';
-  revealEditorOnMobile();
-  await renderApiKeys();
+function snippet(label, code) {
+  return `<div class="snippet"><span>${escapeHtml(label)}</span><div class="box"><pre>${escapeHtml(code)}</pre><button type="button" data-copy="${escapeHtml(code)}">Copy</button></div></div>`;
 }
 
 async function renderApiKeys() {
+  const box = $("view-keys");
   let keys;
   try {
     keys = await api("/api-keys");
   } catch (error) {
-    if (error.message !== "unauthorized") {
-      document.getElementById("editor").innerHTML = `<div class="placeholder">${escapeHtml(error.message)}</div>`;
-    }
+    if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
     return;
   }
-  const rows = keys.map((k) => `
-    <div class="key-block">
+  const endpoint = `${window.location.origin}/api/widget/chat`;
+  const rows = keys.map(k => {
+    const active = k.status === "active";
+    return `
+    <section class="card key-card">
       <div class="key-head">
         <div>
-          <strong>${escapeHtml(k.label)}</strong>
-          <span class="badge ${k.status === 'active' ? 'approved' : 'rejected'}">${k.status}</span>
+          <div class="name"><strong>${escapeHtml(k.label)}</strong><span class="badge ${active ? "active" : "revoked"}">${active ? "Đang hoạt động" : "Đã thu hồi"}</span></div>
+          <span class="meta">${escapeHtml(k.allowed_origin)} · tạo ${new Date(k.created_at).toLocaleDateString("vi-VN")}${k.last_used_at ? ` · dùng gần nhất ${new Date(k.last_used_at).toLocaleString("vi-VN")}` : ""}</span>
         </div>
-        <div class="key-actions">
-          ${k.status === 'active' ? `<button class="btn secondary small" data-revoke="${k.id}">Thu hồi</button>` : ""}
-          <button class="btn danger small" data-delete="${k.id}">Xoá</button>
+        <div class="btns">
+          ${active ? `<button class="btn btn-outline btn-sm" data-revoke="${escapeHtml(k.id)}">Thu hồi</button>` : ""}
+          <button class="btn btn-danger btn-sm" data-delete="${escapeHtml(k.id)}">Xoá</button>
         </div>
       </div>
-      <div class="key-meta"><span>Domain: <strong>${escapeHtml(k.allowed_origin)}</strong></span><span>Tạo: ${new Date(k.created_at).toLocaleString('vi-VN')}</span>${k.last_used_at ? `<span>Dùng gần nhất: ${new Date(k.last_used_at).toLocaleString('vi-VN')}</span>` : ''}</div>
-      <div class="integration-card">
-        <h3>API cho giao diện Major OS (khuyến nghị)</h3>
-        <label>Endpoint</label>
-        <div class="code-row"><textarea readonly rows="1">${escapeHtml(`${window.location.origin}/api/widget/chat`)}</textarea>${copyButton(`${window.location.origin}/api/widget/chat`)}</div>
-        <label>Method</label>
-        <div class="code-row"><textarea readonly rows="1">POST</textarea>${copyButton("POST")}</div>
-        <label>Header</label>
-        <div class="code-row"><textarea readonly rows="1">X-Widget-Key: ${escapeHtml(k.key)}</textarea>${copyButton(`X-Widget-Key: ${k.key}`)}</div>
-        <label>Request body</label>
-        <div class="code-row"><textarea readonly rows="4">${escapeHtml(widgetRequestSnippet())}</textarea>${copyButton(widgetRequestSnippet())}</div>
-        <label>Response thành công</label>
-        <div class="code-row"><textarea readonly rows="6">${escapeHtml(widgetResponseSnippet())}</textarea>${copyButton(widgetResponseSnippet())}</div>
-        <div class="integration-note">Giữ key ở backend Major OS, không đưa vào frontend.</div>
+      <div class="key-body">
+        <span class="label">API cho giao diện Major OS (khuyến nghị)</span>
+        ${snippet("Endpoint", `POST ${endpoint}`)}
+        ${snippet("Header", `X-Widget-Key: ${k.key}`)}
+        ${snippet("Request body", widgetRequestSnippet())}
+        ${snippet("Response thành công", widgetResponseSnippet())}
+        <p class="note-box"><strong>Lưu ý:</strong> giữ key ở backend Major OS, không đưa vào frontend.</p>
       </div>
-    </div>
-  `).join("") || '<p class="muted-note">Chưa có API key nào.</p>';
+    </section>`;
+  }).join("");
 
-  document.getElementById("editor").innerHTML = `
-    <label>Tên trang nhúng</label>
-    <input id="newKeyLabel" placeholder="Vd: Intranet phòng HR">
-    <label>Domain của giao diện đối tác (vd https://os.truongvietanh.com)</label>
-    <input id="newKeyOrigin" placeholder="https://os.truongvietanh.com" inputmode="url">
-    <p class="muted-note" style="margin-top:8px">Nhập đúng origin gồm giao thức và domain, không thêm đường dẫn phía sau. Key dùng cho API backend; domain này cũng là domain được phép dùng iframe.</p>
-    <div class="actions"><button class="btn" id="createKeyBtn">Tạo API key</button></div>
-    <div style="margin-top:22px">${rows}</div>
-  `;
+  box.innerHTML = `
+    <section class="card">
+      <h2>Tạo API key</h2>
+      <div class="grid-2">
+        <label class="field">Tên trang nhúng<input id="newKeyLabel" placeholder="Vd: Intranet phòng HR"></label>
+        <label class="field">Domain đối tác<input id="newKeyOrigin" placeholder="https://os.truongvietanh.com" inputmode="url"></label>
+      </div>
+      <p class="muted">Nhập đúng origin gồm giao thức và domain, không thêm đường dẫn phía sau. Domain này cũng là domain được phép dùng iframe.</p>
+      <div><button class="btn btn-secondary" id="createKeyBtn">Tạo API key</button></div>
+    </section>
+    ${rows || '<p class="muted">Chưa có API key nào.</p>'}`;
 
-  document.getElementById("createKeyBtn").onclick = async () => {
-    const label = document.getElementById("newKeyLabel").value.trim();
-    let allowed_origin = document.getElementById("newKeyOrigin").value.trim();
+  $("createKeyBtn").onclick = async () => {
+    const label = $("newKeyLabel").value.trim();
+    let allowed_origin = $("newKeyOrigin").value.trim();
     if (!label || !allowed_origin) { toast("Cần nhập tên và domain.", true); return; }
     try {
       const url = new URL(allowed_origin);
-      if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' && url.pathname !== '' || url.search || url.hash) throw new Error();
+      if (!["http:", "https:"].includes(url.protocol) || url.pathname !== "/" && url.pathname !== "" || url.search || url.hash) throw new Error();
       // Lưu đúng origin đã chuẩn hoá (chữ thường, bỏ port mặc định) — backend so khớp
       // tuyệt đối với header Origin của trình duyệt nên không được gửi chuỗi gõ tay.
       allowed_origin = url.origin;
-      document.getElementById("newKeyOrigin").value = allowed_origin;
     } catch {
       toast("Domain phải có dạng https://os.truongvietanh.com và không có đường dẫn phía sau.", true);
       return;
@@ -701,10 +757,8 @@ async function renderApiKeys() {
       if (error.message !== "unauthorized") toast(error.message, true);
     }
   };
-  document.querySelectorAll("[data-copy]").forEach((button) => {
-    button.onclick = () => copyText(button.dataset.copy);
-  });
-  document.querySelectorAll("[data-revoke]").forEach((btn) => {
+  box.querySelectorAll("[data-copy]").forEach(button => { button.onclick = () => copyText(button.dataset.copy); });
+  box.querySelectorAll("[data-revoke]").forEach(btn => {
     btn.onclick = async () => {
       try {
         await api(`/api-keys/${btn.dataset.revoke}/revoke`, { method: "POST" });
@@ -715,7 +769,7 @@ async function renderApiKeys() {
       }
     };
   });
-  document.querySelectorAll("[data-delete]").forEach((btn) => {
+  box.querySelectorAll("[data-delete]").forEach(btn => {
     btn.onclick = async () => {
       if (!confirm("Xoá vĩnh viễn API key này?")) return;
       try {
@@ -728,11 +782,6 @@ async function renderApiKeys() {
     };
   });
 }
-
-document.getElementById("newNoteBtn").onclick = showNewNoteForm;
-document.getElementById("uploadBtn").onclick = showUploadForm;
-document.getElementById("statsBtn").onclick = showStats;
-document.getElementById("apiKeysBtn").onclick = showApiKeys;
 
 if (token) { showApp(); } else { showLogin(); }
 </script>

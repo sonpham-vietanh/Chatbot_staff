@@ -1,5 +1,5 @@
-"""Giữ giao diện đúng Brand Guideline Trường Việt Anh v2.0 (docs/Brand-Guideline-Viet-Anh-MASTER.docx):
-Navy #26275D + Vàng #F9DD0E, font Be Vietnam Pro (chỉ sans-serif), cỡ chữ tối thiểu 16px."""
+"""Giữ giao diện đúng Việt Anh Design System (refactor 2026-07, theo Brand Guideline v2.0):
+navy #14153A + CTA vàng #F9DD0E, font Manrope (chỉ sans-serif), cỡ chữ tối thiểu 16px."""
 import re
 from pathlib import Path
 
@@ -24,8 +24,8 @@ def _font_sizes_px(text: str) -> list[float]:
 def test_static_pages_follow_brand_typography_and_colors(page):
     text = page.read_text(encoding="utf-8")
 
-    assert "Be Vietnam Pro" in text
-    assert "#26275D" in text
+    assert "Manrope" in text
+    assert "#14153A" in text
     assert not SERIF_FONTS.search(text)
     assert not OLD_PALETTE.search(text)
     too_small = [size for size in _font_sizes_px(text) if size < 16]
@@ -47,9 +47,9 @@ def test_react_frontend_uses_brand_tokens_only(source):
 def test_tailwind_theme_matches_brand_palette():
     config = (ROOT / "frontend" / "tailwind.config.js").read_text(encoding="utf-8")
 
-    for hex_code in ("#26275D", "#F9DD0E", "#F0F4F8", "#1A1A2E", "#E2E8F0"):
+    for hex_code in ("#14153A", "#F9DD0E", "#E8C40A", "#FAF9F4", "#1A1A2E", "#E7E5DA"):
         assert hex_code in config
-    assert '"Be Vietnam Pro"' in config
+    assert "Manrope" in config
 
 
 def test_brand_assets_are_served_for_every_page():

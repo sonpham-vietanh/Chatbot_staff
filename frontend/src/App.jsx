@@ -1,29 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  ArrowUp,
-  ArrowRightLeft,
-  Bot,
-  BriefcaseBusiness,
-  CalendarDays,
-  Check,
-  Link2,
-  LogOut,
-  Menu,
-  Plus,
-  ShieldCheck,
-  Users,
-  X,
-} from 'lucide-react'
+import { ArrowUp, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 
-// Logo chính thức theo Brand Guideline (header website truongvietanh.com), phục vụ từ /brand
-// của backend. Quy định: rộng tối thiểu 120px, chỉ đặt trên nền trắng hoặc #F0F4F8.
+// Logo chính thức (header website truongvietanh.com), phục vụ từ /brand của backend.
+// Chỉ đặt trên nền trắng/kem; trên nền navy dùng wordmark chữ "TRƯỜNG VIỆT ANH".
 const LOGO_SRC = '/brand/logo-vietanh.webp'
 
 const suggestions = [
-  { icon: CalendarDays, label: 'Nghỉ phép', text: 'Tôi cần xin nghỉ phép trước bao lâu?' },
-  { icon: BriefcaseBusiness, label: 'Công tác phí', text: 'Đi công tác thì có được trả phí không?' },
-  { icon: Users, label: 'Liên hệ Nhân sự', text: 'Liên hệ phòng Nhân sự ở đâu?' },
+  { label: 'Nghỉ phép', text: 'Tôi cần xin nghỉ phép trước bao lâu?' },
+  { label: 'Công tác phí', text: 'Đi công tác thì có được trả phí không?' },
+  { label: 'Liên hệ', text: 'Liên hệ phòng Nhân sự ở đâu?' },
 ]
 
 const TOKEN_KEY = 'va_token'
@@ -356,9 +342,12 @@ function App() {
   const statusOnline = health?.status === 'ok'
   const statusPending = health === null
   const approvedCount = health?.approved_notes || 0
+  const displayName = user?.display_name || user?.employee?.display_name || ''
+  const firstName = displayName.trim().split(/\s+/).pop() || 'bạn'
+  const activeThread = threads.find((thread) => thread.id === activeThreadId)
 
   if (!authChecked) {
-    return <div className="grid min-h-screen place-items-center bg-surface text-base text-muted">Đang tải...</div>
+    return <div className="grid h-full place-items-center bg-cream text-base text-muted">Đang tải...</div>
   }
 
   if (!user) {
@@ -378,149 +367,145 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface text-ink">
-      <aside className={`${mobileNav ? 'mobile-open' : ''} sidebar fixed inset-y-0 left-0 z-30 flex w-[300px] -translate-x-full flex-col border-r border-line bg-white px-5 py-6 transition-transform lg:static lg:h-screen lg:translate-x-0`}>
-        <div className="flex items-start justify-between gap-5">
-          <Brand />
-          <button className="icon-button lg:hidden" onClick={() => setMobileNav(false)} aria-label="Đóng menu"><X size={20} /></button>
+    <div className="relative flex h-full w-full overflow-hidden">
+      <aside className={`dark-surface z-30 flex w-[288px] shrink-0 flex-col px-5 pb-5 pt-7 max-[899px]:absolute max-[899px]:inset-y-0 max-[899px]:left-0 ${mobileNav ? '' : 'max-[899px]:hidden'}`}>
+        <div className="flex items-start justify-between gap-3 px-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="wordmark">TRƯỜNG VIỆT ANH</span>
+            <span className="font-semibold text-gold">Trợ lý nội bộ</span>
+          </div>
+          <button onClick={() => setMobileNav(false)} className="grid h-10 w-10 place-items-center border border-white/20 text-white min-[900px]:hidden" aria-label="Đóng menu"><X size={18} /></button>
         </div>
-        <button onClick={startNewThread} className="btn-primary mt-6 h-12 w-full text-base">
-          <Plus size={20} strokeWidth={2.5} /> Cuộc trò chuyện mới
+
+        <button onClick={startNewThread} className="btn btn-new mt-7 w-full">
+          <Plus size={18} strokeWidth={2.4} /> Cuộc trò chuyện mới
         </button>
-        <div className="mt-7 min-h-0 flex-1 overflow-y-auto">
-          <div className="section-caption px-1">Lịch sử</div>
-          <div className="mt-3 space-y-1">
-            {threads.length === 0 && <p className="px-1 py-2 text-base leading-6 text-muted">Chưa có cuộc trò chuyện nào.</p>}
-            {threads.map((thread) => {
-              const active = thread.id === activeThreadId
-              return (
-                <div
-                  key={thread.id}
-                  onClick={() => openThread(thread.id)}
-                  className={`thread-item ${active ? 'active bg-navy text-white' : 'text-ink hover:bg-surface'} flex cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-base transition`}
-                >
-                  <span className="truncate">{thread.title || 'Cuộc trò chuyện mới'}</span>
-                  <button onClick={(event) => deleteThread(thread.id, event)} className={`thread-delete grid h-8 w-8 shrink-0 place-items-center rounded-lg ${active ? 'text-white hover:bg-white/15' : 'text-muted hover:bg-white hover:text-navy'}`} aria-label="Xoá cuộc trò chuyện"><X size={16} /></button>
-                </div>
-              )
-            })}
-          </div>
+
+        <div className="mt-8 px-2 font-bold tracking-[.08em] text-gold">LỊCH SỬ</div>
+        <div className="mt-2.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          {threads.length === 0 && <p className="p-2 text-[#A9AAC8]">Chưa có cuộc trò chuyện nào.</p>}
+          {threads.map((thread) => (
+            <div key={thread.id} onClick={() => openThread(thread.id)} className={`thread-row ${thread.id === activeThreadId ? 'active' : ''}`}>
+              <span className="dot" />
+              <span className="title">{thread.title || 'Cuộc trò chuyện mới'}</span>
+              <button onClick={(event) => deleteThread(thread.id, event)} className="del" aria-label="Xoá cuộc trò chuyện"><X size={14} strokeWidth={2.2} /></button>
+            </div>
+          ))}
         </div>
-        <div className="mt-4 flex items-center gap-3 border-t border-line pt-4">
-          <div className="avatar user-avatar">{(user.display_name || user.email || '?').slice(0, 1).toUpperCase()}</div>
+
+        <div className="mt-4 flex items-center gap-3 border-t border-white/[.12] px-2 pt-4">
+          <div className="grid h-10 w-10 shrink-0 place-items-center bg-[linear-gradient(180deg,#F9DD0E_0%,#E0B90C_100%)] text-[17px] font-extrabold text-navy">
+            {(displayName || user.email || '?').trim().split(/\s+/).pop().slice(0, 1).toUpperCase()}
+          </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-bold text-navy">{user.display_name || 'Nhân viên'}</p>
-            <p className="truncate text-base text-muted">{user.email}</p>
+            <div className="truncate font-bold">{displayName || 'Nhân viên'}</div>
+            <div className="truncate text-[#A9AAC8]">{user.employee?.department || user.email}</div>
           </div>
         </div>
-        <div className="mt-3 space-y-2">
-          <button onClick={handleSwitchGoogleAccount} className="btn-outline h-11 w-full whitespace-nowrap px-3 text-base"><ArrowRightLeft size={18} /> Đổi tài khoản Google</button>
-          <button onClick={handleLogout} className="btn-outline h-11 w-full whitespace-nowrap px-3 text-base"><LogOut size={18} /> Đăng xuất</button>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button onClick={handleSwitchGoogleAccount} className="btn-dark">Đổi tài khoản</button>
+          <button onClick={handleLogout} className="btn-dark">Đăng xuất</button>
         </div>
       </aside>
-      {mobileNav && <button className="fixed inset-0 z-20 bg-navy/40 lg:hidden" onClick={() => setMobileNav(false)} aria-label="Đóng menu" />}
+      {mobileNav && <div className="absolute inset-0 z-20 bg-[rgba(13,14,43,.45)] min-[900px]:hidden" onClick={() => setMobileNav(false)} />}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex items-center justify-between border-b border-line bg-white px-4 py-4 lg:hidden">
-          <img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[150px]" />
-          <button className="icon-button" onClick={() => setMobileNav(true)} aria-label="Mở menu"><Menu size={22} /></button>
+      <div className="flex min-w-0 flex-1 flex-col bg-cream">
+        <header className="flex items-center justify-between gap-4 border-b border-line bg-white px-4 py-4 sm:px-7">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <button onClick={() => setMobileNav(true)} className="grid h-11 w-11 shrink-0 place-items-center border border-line bg-white text-navy min-[900px]:hidden" aria-label="Mở menu"><Menu size={20} /></button>
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-extrabold text-navy">{activeThread?.title || 'Cuộc trò chuyện mới'}</h1>
+              <p className="truncate text-muted">Chỉ trả lời từ tài liệu đã được duyệt</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-5">
+            <div className="flex items-center gap-2 text-ink">
+              <span className={`status-dot ${statusOnline ? 'online' : statusPending ? 'pending' : ''}`} />
+              <span className="hidden sm:inline">{statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}</span>
+              <span className="sm:hidden">{statusOnline ? `${approvedCount} tài liệu` : statusPending ? '...' : 'Mất kết nối'}</span>
+            </div>
+            <a href="/admin" className="hidden font-bold sm:inline">Quản lý dữ liệu</a>
+          </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 gap-5 p-3 sm:p-6">
-          <section className="card flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-7">
-              <div>
-                <h1 className="text-xl font-extrabold text-navy">Trò chuyện nội bộ</h1>
-                <p className="mt-0.5 text-base text-muted">Tra cứu quy định đã được duyệt · Trường Việt Anh</p>
-              </div>
-              <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-4 py-1.5 text-base text-ink">
-                <span className={`status-dot ${statusOnline ? 'online' : statusPending ? 'pending' : ''}`} />
-                {statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
-              <div className="mx-auto max-w-[820px]">
-                {messages.length === 0 ? <EmptyState onAsk={ask} /> : (
-                  <div className="space-y-7">
-                    {messages.map((message, index) => <Message key={`${message.role}-${index}`} message={message} />)}
-                    {loading && (
-                      <div className="flex gap-3">
-                        <div className="avatar"><Bot size={20} /></div>
-                        <div className="assistant-bubble px-4 py-3 text-base text-muted"><span className="typing"><i /><i /><i /></span>Đang tra cứu tài liệu nội bộ...</div>
-                      </div>
-                    )}
-                    <div ref={scrollAnchorRef} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-10 sm:px-6">
+          <div className="mx-auto max-w-[760px]">
+            {messages.length === 0 && !loading ? <EmptyState firstName={firstName} onAsk={ask} /> : (
+              <div className="flex flex-col gap-8">
+                {messages.map((message, index) => <Message key={`${message.role}-${index}`} message={message} />)}
+                {loading && (
+                  <div className="flex items-center gap-4">
+                    <div className="va-mark">VA</div>
+                    <div className="flex items-center gap-3 text-muted"><span className="typing"><i /><i /><i /></span>Đang tra cứu tài liệu nội bộ…</div>
                   </div>
                 )}
+                <div ref={scrollAnchorRef} />
               </div>
-            </div>
-            <form className="border-t border-line bg-white p-4 sm:p-5" onSubmit={(event) => { event.preventDefault(); ask() }}>
-              <div className="mx-auto max-w-[820px]">
-                <div className="relative flex items-center">
-                  <input value={question} onChange={(event) => setQuestion(event.target.value)} className="field h-14 pr-16" placeholder="Hỏi về quy định nội bộ..." aria-label="Câu hỏi" />
-                  <button disabled={loading || !question.trim()} className="btn-cta absolute right-2 h-11 w-11 px-0" aria-label="Gửi câu hỏi"><ArrowUp size={22} strokeWidth={2.5} /></button>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-base text-muted">
-                  <span>Câu trả lời chỉ dựa trên tài liệu nội bộ đã được duyệt.</span>
-                  <a href="/admin" className="font-semibold text-navy underline-offset-4 hover:underline">Quản lý dữ liệu</a>
-                </div>
-              </div>
-            </form>
-          </section>
-
-          <aside className="hidden w-[320px] shrink-0 flex-col gap-4 overflow-y-auto xl:flex">
-            <section className="card p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="section-caption">Kho tri thức</p>
-                  <h2 className="mt-1 text-lg font-extrabold text-ink">Tài liệu đã duyệt</h2>
-                </div>
-                <ShieldCheck className="shrink-0 text-navy" size={24} />
-              </div>
-              <p className="mt-3 text-base leading-7 text-muted">Trợ lý chỉ trả lời từ nội dung đã được duyệt, áp dụng cho cán bộ, giáo viên, nhân viên.</p>
-              <div className="mt-4 flex items-center gap-2 border-t border-line pt-4 text-base text-ink">
-                {statusOnline ? <Check size={18} className="shrink-0 text-success" /> : <span className={`status-dot ${statusPending ? 'pending' : ''}`} />}
-                {statusOnline ? `${approvedCount} tài liệu đang sẵn sàng` : statusPending ? 'Đang kết nối kho tri thức...' : 'Chưa kết nối được kho tri thức'}
-              </div>
-              {user.employee && (
-                <div className="mt-4 border-t border-line pt-4 text-base">
-                  <p className="font-bold text-navy">{user.employee.department}</p>
-                  <p className="mt-1 text-muted">{user.employee.job_title}</p>
-                </div>
-              )}
-            </section>
-          </aside>
+            )}
+          </div>
         </div>
+
+        <form className="bg-cream px-4 pb-5 pt-4 sm:px-6" onSubmit={(event) => { event.preventDefault(); ask() }}>
+          <div className="mx-auto max-w-[760px]">
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-white py-1.5 pl-5 pr-1.5 shadow-[0_4px_16px_rgba(20,21,58,.05)]">
+              <input value={question} onChange={(event) => setQuestion(event.target.value)} className="h-12 min-w-0 flex-1 border-0 bg-transparent text-[17px] text-ink outline-none" placeholder="Hỏi về quy định nội bộ…" aria-label="Câu hỏi" />
+              <button disabled={loading || !question.trim()} className="send-btn" aria-label="Gửi câu hỏi"><ArrowUp size={20} strokeWidth={2.6} /></button>
+            </div>
+            <p className="mt-2.5 text-center text-muted">Câu trả lời chỉ dựa trên tài liệu nội bộ đã được duyệt.</p>
+          </div>
+        </form>
       </div>
     </div>
   )
 }
 
 function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error, onGoogle, googleConfigured }) {
+  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }))
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface px-4 py-10">
-      <div className="card w-full max-w-[440px] p-7 sm:p-9">
-        <div className="flex justify-center"><img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[240px]" /></div>
-        <h1 className="mt-6 text-center text-3xl font-extrabold text-navy">{mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</h1>
-        <p className="mt-2 text-center text-base leading-6 text-muted">Trợ lý nội bộ dành cho cán bộ, giáo viên, nhân viên Trường Việt Anh</p>
-        <button type="button" onClick={onGoogle} disabled={loading || !googleConfigured} className="btn-outline mt-7 h-12 w-full text-base">
-          <GoogleMark />
-          {googleConfigured ? 'Đăng nhập với Google' : 'Google chưa được cấu hình'}
-        </button>
-        <div className="my-5 flex items-center gap-3 text-base text-muted"><span className="h-px flex-1 bg-line" />hoặc dùng email<span className="h-px flex-1 bg-line" /></div>
-        <form onSubmit={onSubmit} className="space-y-3">
-          {mode === 'signup' && (
-            <input required value={form.display_name} onChange={(event) => setForm((current) => ({ ...current, display_name: event.target.value }))} placeholder="Họ tên" aria-label="Họ tên" className="field" />
-          )}
-          <input required type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email công ty (@truongvietanh.com)" aria-label="Email" className="field" />
-          <input required type="password" minLength={6} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Mật khẩu (tối thiểu 6 ký tự)" aria-label="Mật khẩu" className="field" />
-          {error && <p className="text-base leading-6 text-danger" role="alert">{error}</p>}
-          <button disabled={loading} className="btn-cta h-12 w-full text-base">{loading ? 'Đang xử lý...' : mode === 'login' ? 'Đăng nhập' : 'Đăng ký'}</button>
-        </form>
-        <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="mt-5 w-full text-center text-base font-semibold text-navy underline-offset-4 hover:underline">
-          {mode === 'login' ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
-        </button>
-      </div>
+    <div className="grid h-full overflow-auto min-[900px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <aside className="dark-surface diagonal hidden flex-col justify-between px-16 py-14 min-[900px]:flex">
+        <div className="wordmark text-lg">TRƯỜNG VIỆT ANH</div>
+        <div className="max-w-[460px]">
+          <div className="rule mb-6" />
+          <h1 className="text-[48px] font-extrabold leading-[1.1] tracking-[-.01em] [text-wrap:balance]">Trợ lý nội bộ cho cán bộ, giáo viên, nhân viên</h1>
+          <p className="mt-5 text-lg leading-[1.65] text-navy-100">Tra cứu quy chế, chính sách và quy trình đã được duyệt. Mỗi câu trả lời đều kèm nguồn để bạn kiểm chứng.</p>
+          <div className="mt-10 flex flex-col border-t border-white/[.12]">
+            {[['Nhân sự', 'Nghỉ phép · bảo hiểm'], ['Tài chính', 'Công tác phí · thanh toán'], ['Chuyên môn', 'SOP giảng dạy']].map(([label, text]) => (
+              <div key={label} className="flex justify-between gap-4 border-b border-white/[.12] py-3.5"><span className="font-bold">{label}</span><span className="text-[#C9CAE0]">{text}</span></div>
+            ))}
+          </div>
+        </div>
+        <div className="font-semibold text-[#FDE68A]">Vui vẻ và Thực dụng</div>
+      </aside>
+
+      <main className="flex items-center justify-center bg-cream px-6 py-12">
+        <div className="flex w-full max-w-[420px] flex-col">
+          <img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[180px] self-start" />
+          <h2 className="mt-10 text-[32px] font-extrabold leading-tight text-navy">{mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}</h2>
+          <p className="mt-2 leading-relaxed text-muted">Dùng tài khoản @truongvietanh.com</p>
+
+          <button type="button" onClick={onGoogle} disabled={loading || !googleConfigured} className="btn btn-google mt-8 w-full">
+            <GoogleMark />
+            {googleConfigured ? 'Đăng nhập với Google' : 'Google chưa được cấu hình'}
+          </button>
+
+          <div className="my-7 flex items-center gap-3 text-muted"><span className="h-px flex-1 bg-line" />hoặc dùng email<span className="h-px flex-1 bg-line" /></div>
+
+          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            {mode === 'signup' && (
+              <label className="field">Họ tên<input required value={form.display_name} onChange={update('display_name')} placeholder="Nguyễn Văn A" /></label>
+            )}
+            <label className="field">Email<input required type="email" value={form.email} onChange={update('email')} placeholder="ten@truongvietanh.com" /></label>
+            <label className="field">Mật khẩu<input required type="password" minLength={6} value={form.password} onChange={update('password')} placeholder="Tối thiểu 6 ký tự" /></label>
+            {error && <p className="text-danger" role="alert">{error}</p>}
+            <button disabled={loading} className="btn btn-cta mt-2 w-full">{loading ? 'Đang xử lý...' : `${mode === 'login' ? 'Đăng nhập' : 'Đăng ký'} →`}</button>
+          </form>
+
+          <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="btn-link mt-6 self-center">
+            {mode === 'login' ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
+          </button>
+        </div>
+      </main>
     </div>
   )
 }
@@ -536,32 +521,20 @@ function GoogleMark() {
   )
 }
 
-function Brand() {
+function EmptyState({ firstName, onAsk }) {
   return (
-    <div className="min-w-0">
-      <img src={LOGO_SRC} alt="Trường Việt Anh" className="h-auto w-[200px]" />
-      <p className="mt-5 text-base font-bold text-navy">Trợ lý nội bộ</p>
-    </div>
-  )
-}
-
-function EmptyState({ onAsk }) {
-  return (
-    <div className="flex h-full min-h-[420px] flex-col justify-center">
-      <div className="mb-6 grid h-14 w-14 place-items-center rounded-2xl bg-navy text-brand-yellow"><Bot size={28} strokeWidth={1.8} /></div>
-      <h2 className="text-3xl font-extrabold leading-tight text-navy sm:text-4xl">Bạn cần tra cứu gì?</h2>
-      <p className="mt-3 max-w-[520px] text-lg leading-8 text-muted">Hỏi nhanh về quy định, chính sách đã được duyệt. Mỗi câu trả lời đều kèm nguồn để bạn kiểm chứng.</p>
-      <div className="mt-8 grid gap-3 sm:grid-cols-3">
-        {suggestions.map((suggestion) => {
-          const Icon = suggestion.icon
-          return (
-            <button key={suggestion.label} onClick={() => onAsk(suggestion.text)} className="group rounded-2xl border border-line bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-navy/40 hover:shadow-card focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/20">
-              <Icon size={24} className="text-navy" />
-              <span className="mt-3 block text-base font-bold text-navy">{suggestion.label}</span>
-              <span className="mt-1 block text-base leading-6 text-muted">{suggestion.text}</span>
-            </button>
-          )
-        })}
+    <div className="pt-[6vh]">
+      <div className="rule" />
+      <h1 className="mt-5 text-[34px] font-extrabold leading-[1.12] tracking-[-.01em] text-navy sm:text-[44px]">Chào {firstName}, bạn cần tra cứu gì?</h1>
+      <p className="mt-3.5 max-w-[540px] text-lg leading-[1.65] text-muted">Hỏi về quy định, chính sách đã được duyệt. Mỗi câu trả lời đều kèm nguồn để bạn kiểm chứng.</p>
+      <div className="mt-9 flex flex-col overflow-hidden rounded-lg border border-line bg-white">
+        {suggestions.map((suggestion) => (
+          <button key={suggestion.label} onClick={() => onAsk(suggestion.text)} className="suggestion">
+            <span className="label font-bold text-gold-text">{suggestion.label}</span>
+            <span className="text-[17px] font-semibold text-navy">{suggestion.text}</span>
+            <span className="text-lg text-navy" aria-hidden="true">→</span>
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -570,7 +543,7 @@ function EmptyState({ onAsk }) {
 function renderInline(text, keyPrefix) {
   const parts = text.split(/\*\*(.+?)\*\*/g)
   return parts.map((part, index) =>
-    index % 2 === 1 ? <strong key={`${keyPrefix}-b${index}`} className="font-bold text-navy">{part}</strong> : <span key={`${keyPrefix}-t${index}`}>{part}</span>
+    index % 2 === 1 ? <strong key={`${keyPrefix}-b${index}`}>{part}</strong> : <span key={`${keyPrefix}-t${index}`}>{part}</span>
   )
 }
 
@@ -581,15 +554,15 @@ function renderMessageText(text) {
     const isBulletBlock = lines.length > 0 && lines.every((line) => /^\s*[*-]\s+/.test(line))
     if (isBulletBlock) {
       return (
-        <ul key={`b${blockIndex}`} className={`${blockIndex > 0 ? 'mt-2' : ''} list-disc space-y-1.5 pl-5 marker:text-navy`}>
+        <ul key={`b${blockIndex}`} className="mb-2.5 flex list-disc flex-col gap-1.5 pl-[22px]">
           {lines.map((line, lineIndex) => (
-            <li key={`b${blockIndex}-l${lineIndex}`} className={/^\s{2,}/.test(line) ? 'ml-5' : ''}>{renderInline(line.replace(/^\s*[*-]\s+/, ''), `b${blockIndex}-l${lineIndex}`)}</li>
+            <li key={`b${blockIndex}-l${lineIndex}`} className={`pl-1 ${/^\s{2,}/.test(line) ? 'ml-5' : ''}`}>{renderInline(line.replace(/^\s*[*-]\s+/, ''), `b${blockIndex}-l${lineIndex}`)}</li>
           ))}
         </ul>
       )
     }
     return (
-      <p key={`b${blockIndex}`} className={blockIndex > 0 ? 'mt-2' : ''}>
+      <p key={`b${blockIndex}`} className="mb-2.5 [text-wrap:pretty]">
         {block.split('\n').map((line, lineIndex, arr) => (
           <span key={`b${blockIndex}-l${lineIndex}`}>
             {renderInline(line, `b${blockIndex}-l${lineIndex}`)}
@@ -602,22 +575,29 @@ function renderMessageText(text) {
 }
 
 function Message({ message }) {
-  const isUser = message.role === 'user'
+  if (message.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-[10px_10px_3px_10px] bg-navy px-[18px] py-3.5 text-[17px] leading-[1.6] text-white">{message.text}</div>
+      </div>
+    )
+  }
   return (
-    <div className={`flex gap-3 ${isUser ? 'justify-end' : ''}`}>
-      {!isUser && <div className="avatar"><Bot size={20} /></div>}
-      <div className={`max-w-[86%] px-4 py-3 text-base leading-7 ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
-        {isUser ? message.text : renderMessageText(message.text)}
+    <div className="flex gap-4">
+      <div className="va-mark">VA</div>
+      <div className="bot-text min-w-0 flex-1 pt-1 text-[17px] leading-[1.7] text-ink">
+        {renderMessageText(message.text)}
         {message.citations?.length > 0 && (
-          <div className="mt-3 border-t border-line pt-3">
-            <div className="flex items-center gap-1.5 text-base font-bold text-navy"><Link2 size={16} /> Nguồn</div>
-            <ul className="mt-1 space-y-1">
+          <div className="mt-4 flex flex-col gap-2">
+            <span className="font-bold text-gold-text">Nguồn</span>
+            <div className="flex flex-wrap gap-2">
               {message.citations.map((citation, index) => (
-                <li key={`${citation.source}-${index}`} className="text-base leading-6 text-muted">
-                  <span className="font-semibold text-ink">{citation.source}</span> · {citation.heading}{citation.version && citation.version !== 'unknown' ? ` · v${citation.version}` : ''}
-                </li>
+                <span key={`${citation.source}-${index}`} className="source-chip">
+                  <strong>{citation.source}</strong>
+                  {citation.heading}{citation.version && citation.version !== 'unknown' ? ` · v${citation.version}` : ''}
+                </span>
               ))}
-            </ul>
+            </div>
           </div>
         )}
       </div>

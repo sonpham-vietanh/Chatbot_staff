@@ -2,50 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Brand Guideline Trường Việt Anh v2.0 — Be Vietnam Pro, chỉ sans-serif, chữ tối thiểu 16px,
-   Navy #26275D chủ đạo, Vàng #F9DD0E chỉ cho CTA (chữ trên nền vàng luôn là Navy). */
-:root { font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+/* Việt Anh Design System — refactor 2026-07 "Học viện Quốc tế" (design handoff Chatbot_staff):
+   navy #14153A, CTA vàng gradient chữ navy, gold #E8C40A, nền kem #FAF9F4, viền #E7E5DA,
+   Manrope, chỉ sans-serif, chữ tối thiểu 16px, nút vuông. */
+:root { --ease: cubic-bezier(.4, 0, .2, 1); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 html { font-size: 16px; }
-body { font-family: 'Be Vietnam Pro', Arial, sans-serif; font-size: 16px; color: #1A1A2E; background: #F0F4F8; }
+html, body, #root { height: 100%; }
+body { margin: 0; font-family: 'Manrope', Arial, sans-serif; font-size: 16px; color: #1A1A2E; background: #FAF9F4; }
 button, select, input, textarea { font-family: inherit; font-size: 16px; }
+input::placeholder { color: #8A8BA3; }
+a { color: #26275D; text-decoration: none; }
+a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px; }
+:focus-visible { outline: 3px solid #E2E3F0; outline-offset: 2px; }
 
-@layer components {
-  .card { @apply rounded-2xl border border-line bg-white shadow-card; }
-
-  /* Nút CTA chính: nền vàng, chữ Navy — không dùng chữ trắng trên nền vàng. */
-  .btn-cta { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand-yellow px-5 font-bold text-navy transition hover:bg-brand-yellow-dark focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/25 disabled:cursor-not-allowed disabled:opacity-50; }
-  /* Nút chính thông thường: nền Navy. Mỗi màn hình chỉ 1 nút vàng (CTA chính). */
-  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-navy px-5 font-bold text-white transition hover:bg-navy-dark focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/25 disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-outline { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-5 font-semibold text-navy transition hover:border-navy/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/20 disabled:cursor-not-allowed disabled:opacity-55; }
-  .icon-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-white text-navy transition hover:bg-surface focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/20; }
-
-  .field { @apply h-12 w-full rounded-xl border border-line bg-white px-4 text-base text-ink outline-none transition placeholder:text-muted/80 focus:border-navy focus:ring-4 focus:ring-navy/15; }
-
-  .avatar { @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-navy text-brand-yellow; }
-  .user-avatar { @apply bg-navy-soft text-base font-bold text-navy; }
-
-  .assistant-bubble { @apply rounded-2xl rounded-tl-md border border-line bg-surface text-ink; }
-  .user-bubble { @apply rounded-2xl rounded-tr-md bg-navy text-white; }
-
-  .section-caption { @apply text-base font-bold uppercase tracking-wide text-navy; }
+.rule { width: 34px; height: 2px; background: #E8C40A; }
+.dark-surface {
+  color: #fff; background-color: #14153A;
+  background-image: radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px), linear-gradient(160deg, #14153A 0%, #1C1D4A 100%);
+  background-size: 18px 18px, 100% 100%;
 }
+.dark-surface.diagonal { background-image: radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px), linear-gradient(135deg, #14153A 0%, #26275D 100%); }
+.wordmark { font-weight: 800; letter-spacing: .14em; }
 
-.status-dot { display: inline-block; height: 10px; width: 10px; border-radius: 999px; background: #B42318; }
-.status-dot.online { background: #1E7A4C; }
-.status-dot.pending { background: #555873; }
+/* ---- nút ---- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid transparent; border-radius: 0; font-weight: 700; letter-spacing: .03em; line-height: 1.2; cursor: pointer; transition: transform .18s var(--ease), box-shadow .18s var(--ease), background .18s var(--ease), border-color .18s var(--ease); }
+.btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(20, 21, 58, .12); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-cta { height: 54px; padding: 0 34px; font-size: 17px; background: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); color: #14153A; box-shadow: 0 6px 18px rgba(224, 185, 12, .30); }
+.btn-google { height: 52px; background: #fff; border-color: #14153A; color: #14153A; }
+.btn-dark { height: 42px; background: transparent; border: 1px solid rgba(255, 255, 255, .18); border-radius: 0; color: #E2E3F0; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
+.btn-dark:hover { border-color: rgba(255, 255, 255, .45); color: #fff; }
+.btn-new { height: 48px; background: transparent; border: 1px solid rgba(255, 255, 255, .28); color: #fff; }
+.btn-new:hover:not(:disabled) { background: rgba(255, 255, 255, .06); border-color: #E8C40A; transform: none; box-shadow: none; }
+.btn-link { background: none; border: 0; padding: 8px; font-weight: 600; color: #26275D; cursor: pointer; }
+.btn-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 
-.typing { display: inline-flex; gap: 4px; margin-right: 8px; vertical-align: middle; }
-.typing i { height: 7px; width: 7px; border-radius: 50%; background: #26275D; animation: pulse 1s infinite ease-in-out; }
+/* ---- field ---- */
+.field { display: flex; flex-direction: column; gap: 6px; font-weight: 700; color: #14153A; }
+.field input { height: 50px; padding: 0 16px; border: 1px solid #E7E5DA; border-radius: 6px; background: #fff; color: #1A1A2E; font-weight: 400; outline: none; transition: border-color .15s, box-shadow .15s; }
+.field input:focus { border-color: #14153A; box-shadow: 0 0 0 3px #E2E3F0; }
+
+/* ---- sidebar ---- */
+.thread-row { display: flex; align-items: center; gap: 10px; padding: 11px 8px 11px 12px; cursor: pointer; transition: background .15s; }
+.thread-row:hover { background: rgba(255, 255, 255, .06); }
+.thread-row.active { background: rgba(255, 255, 255, .09); }
+.thread-row .dot { width: 6px; height: 6px; flex-shrink: 0; background: transparent; }
+.thread-row.active .dot { background: #E8C40A; }
+.thread-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #C9CAE0; }
+.thread-row.active .title { color: #fff; }
+.thread-row .del { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; background: transparent; border: 0; color: #8A8BB0; cursor: pointer; }
+.thread-row .del:hover { color: #fff; }
+
+/* ---- trò chuyện ---- */
+.suggestion { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 20px 24px; background: #fff; border: 0; text-align: left; cursor: pointer; transition: background .15s; }
+.suggestion + .suggestion { border-top: 1px solid #E7E5DA; }
+.suggestion:hover { background: #FBF6DC; }
+@media (max-width: 640px) { .suggestion { grid-template-columns: minmax(0, 1fr) auto; } .suggestion .label { grid-column: 1 / -1; } }
+.va-mark { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; background: #14153A; color: #F9DD0E; font-weight: 800; font-size: 16px; letter-spacing: .02em; }
+.bot-text strong { font-weight: 700; color: #14153A; }
+.source-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #fff; border: 1px solid #E7E5DA; border-radius: 3px; color: #54556E; }
+.source-chip strong { font-weight: 700; color: #14153A; }
+.send-btn { width: 48px; height: 48px; flex-shrink: 0; display: grid; place-items: center; background: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); border: 0; border-radius: 6px; color: #14153A; cursor: pointer; transition: transform .18s var(--ease), opacity .18s; }
+.send-btn:hover:not(:disabled) { transform: translateY(-2px); }
+.send-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.status-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: #E03C31; box-shadow: 0 0 0 3px rgba(224, 60, 49, .15); }
+.status-dot.online { background: #1E7F4F; box-shadow: 0 0 0 3px rgba(30, 127, 79, .15); }
+.status-dot.pending { background: #8A8BA3; box-shadow: 0 0 0 3px rgba(138, 139, 163, .15); }
+
+.typing { display: inline-flex; gap: 5px; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: #14153A; animation: vaDot 1s infinite ease-in-out; }
 .typing i:nth-child(2) { animation-delay: .15s; }
 .typing i:nth-child(3) { animation-delay: .3s; }
-@keyframes pulse { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
-
-.sidebar { box-shadow: 8px 0 24px rgba(38, 39, 93, .05); }
-.sidebar.mobile-open { transform: translateX(0); }
-
-.thread-item { position: relative; }
-.thread-delete { opacity: 0; transition: opacity .12s; }
-.thread-item:hover .thread-delete, .thread-item:focus-within .thread-delete, .thread-item.active .thread-delete { opacity: 1; }
-@media (hover: none) { .thread-delete { opacity: 1; } }
-
-@media (prefers-reduced-motion: reduce) { .typing i { animation: none; } }
+@keyframes vaDot { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .typing i { animation: none; } .btn, .send-btn { transition: none; } }
