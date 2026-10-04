@@ -14,6 +14,7 @@ from app.services.analytics_service import AnalyticsService
 from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
 from app.services.chat_history_service import ChatHistoryService
+from app.services.feedback_service import FeedbackService
 from app.services.ingest_agent import IngestAgent
 from app.services.llm import build_llm_provider
 from app.services.supabase_client import SupabaseClient
@@ -61,6 +62,7 @@ class AdvancedRAGPipeline:
         self.chat_history = ChatHistoryService(self.supabase)
         self.analytics = AnalyticsService(self.supabase)
         self.api_keys = ApiKeyService(self.supabase)
+        self.feedback = FeedbackService(self.supabase)
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
         self.wiki_sync = WikiSyncService(self.admin, settings.vault_path) if settings.vault_path else None
 

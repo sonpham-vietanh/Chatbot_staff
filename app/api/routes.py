@@ -1,7 +1,7 @@
 from functools import lru_cache
 import logging
 import secrets
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
@@ -14,6 +14,8 @@ from app.models.schemas import (
     AuthResponse,
     ChatRequest,
     ChatResponse,
+    FeedbackCreateRequest,
+    FeedbackStatusRequest,
     LoginRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
@@ -28,6 +30,7 @@ from app.services.admin_service import AdminService, NoteNotFoundError
 from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService, normalize_origin
 from app.services.auth_service import AuthError, AuthService, is_public_auth_key
 from app.services.chat_history_service import ChatHistoryService
+from app.services.feedback_service import FeedbackNotFoundError, FeedbackService
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.rag_service import RAGService
@@ -57,6 +60,10 @@ def get_chat_history_service(rag: RAGService = Depends(get_rag_service)) -> Chat
 
 def get_api_key_service(rag: RAGService = Depends(get_rag_service)) -> ApiKeyService:
     return rag.api_keys
+
+
+def get_feedback_service(rag: RAGService = Depends(get_rag_service)) -> FeedbackService:
+    return rag.feedback
 
 
 def get_employee_directory(rag: RAGService = Depends(get_rag_service)) -> EmployeeDirectoryService:
@@ -370,6 +377,52 @@ def widget_chat(
     result["answer"] = to_plain_text(result["answer"])
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
     return ChatResponse(**result)
+
+
+@router.post("/feedback")
+def report_wrong_answer(
+    body: FeedbackCreateRequest,
+    user: dict = Depends(require_user),
+    feedback: FeedbackService = Depends(get_feedback_service),
+) -> dict[str, str]:
+    """Nút "Báo sai" trên giao diện chat. Lưu nguyên văn câu hỏi/câu trả lời/nguồn để admin
+    kiểm tra được kể cả khi cuộc trò chuyện đã bị xoá."""
+    payload = body.model_dump(mode="json")
+    try:
+        record = feedback.create(user, payload)
+    except Exception as error:
+        logger.warning("Không lưu được báo cáo sai", exc_info=True)
+        raise HTTPException(status_code=503, detail="Chưa gửi được báo cáo, vui lòng thử lại sau.") from error
+    return {"status": "received", "id": str(record.get("id", ""))}
+
+
+@router.get("/admin/feedback", dependencies=[Depends(require_admin)])
+def admin_list_feedback(
+    status: Literal["open", "resolved", "dismissed", "all"] = Query("open"),
+    feedback: FeedbackService = Depends(get_feedback_service),
+) -> dict[str, object]:
+    try:
+        return {"items": feedback.list(status), "open_count": feedback.count_open()}
+    except Exception as error:
+        logger.warning("Không đọc được answer_feedback", exc_info=True)
+        raise HTTPException(
+            # 500 chứ không 503: trang admin hiểu 503 là "chưa cấu hình ADMIN_TOKEN" và tự đăng xuất.
+            status_code=500,
+            detail="Chưa đọc được báo cáo — kiểm tra đã chạy migration 20261004000000_answer_feedback.sql trên Supabase chưa.",
+        ) from error
+
+
+@router.post("/admin/feedback/{feedback_id}/status", dependencies=[Depends(require_admin)])
+def admin_set_feedback_status(
+    feedback_id: uuid.UUID,
+    body: FeedbackStatusRequest,
+    feedback: FeedbackService = Depends(get_feedback_service),
+) -> dict[str, str]:
+    try:
+        feedback.set_status(str(feedback_id), body.status)
+    except FeedbackNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": body.status}
 
 
 @router.get("/admin/notes", dependencies=[Depends(require_admin)])

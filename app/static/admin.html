@@ -159,6 +159,28 @@
   .drop-zone span { color: var(--muted); }
 
   /* ---- thống kê ---- */
+  .feedback { max-width: 980px; padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  @media (max-width: 640px) { .feedback { padding: 16px; } }
+  .feedback-tabs { overflow: hidden; }
+  .feedback-tabs .tabs { border-bottom: 0; }
+  #feedbackList { display: flex; flex-direction: column; gap: 20px; }
+  .fb-card { overflow: hidden; }
+  .fb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 18px 24px; border-bottom: 1px solid var(--line); }
+  .fb-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge.fb-reason { background: #FCE4E2; color: #8A1C14; }
+  .fb-meta { color: var(--muted); }
+  .fb-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .fb-label { display: block; margin-bottom: 6px; font-weight: 700; color: var(--gold-text); }
+  .fb-question { margin: 0; font-size: 17px; font-weight: 700; color: var(--navy); }
+  .fb-answer { padding: 14px 16px; background: var(--cream); border-radius: 6px; line-height: 1.65; }
+  .fb-answer strong { color: var(--navy); }
+  .fb-note { padding: 12px 14px; background: var(--cream-hover); border-radius: 6px; line-height: 1.6; }
+  .fb-note strong { color: var(--navy); }
+  .fb-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fb-source { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #fff; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); cursor: pointer; text-align: left; }
+  .fb-source:hover { background: var(--cream-hover); border-color: var(--navy); }
+  .fb-source strong { color: var(--navy); }
+  .fb-actions { margin: 0 24px; padding: 16px 0 20px; }
   .stats { max-width: 1040px; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
   .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
   .stat-card { padding: 24px; }
@@ -227,6 +249,7 @@
   <nav class="side" aria-label="Điều hướng quản trị">
     <div class="side-brand"><span class="wordmark">TRƯỜNG VIỆT ANH</span><span class="sub">Quản trị tri thức</span></div>
     <button class="nav-item" data-view="notes"><span class="dot"></span>Tri thức<span class="nav-count" id="draftCount" hidden></span></button>
+    <button class="nav-item" data-view="feedback"><span class="dot"></span>Báo sai<span class="nav-count" id="feedbackCount" hidden></span></button>
     <button class="nav-item" data-view="upload"><span class="dot"></span>Upload file</button>
     <button class="nav-item" data-view="stats"><span class="dot"></span>Thống kê</button>
     <button class="nav-item" data-view="keys"><span class="dot"></span>API nhúng</button>
@@ -293,6 +316,19 @@
         </section>
       </div>
 
+      <!-- Báo sai -->
+      <div class="feedback" id="view-feedback" hidden>
+        <div class="card feedback-tabs">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-fstatus="open">Chưa xử lý</button>
+            <button class="tab" data-fstatus="resolved">Đã sửa</button>
+            <button class="tab" data-fstatus="dismissed">Bỏ qua</button>
+            <button class="tab" data-fstatus="all">Tất cả</button>
+          </div>
+        </div>
+        <div id="feedbackList"></div>
+      </div>
+
       <!-- Thống kê -->
       <div class="stats" id="view-stats" hidden></div>
 
@@ -315,6 +351,7 @@ const VIEWS = {
   notes: { crumb: "Tri thức", title: "Danh sách note", nav: "notes" },
   new: { crumb: "Tri thức", title: "Note mới", nav: "notes" },
   upload: { crumb: "Tri thức", title: "Upload file", nav: "upload" },
+  feedback: { crumb: "Chất lượng", title: "Câu trả lời bị báo sai", nav: "feedback" },
   stats: { crumb: "Báo cáo", title: "Thống kê câu hỏi", nav: "stats" },
   keys: { crumb: "Tích hợp", title: "API nhúng", nav: "keys" },
 };
@@ -379,6 +416,7 @@ function showApp() {
   fillDepartmentSelects();
   setView("notes");
   loadNotes();
+  loadFeedbackCount();
 }
 
 $("loginBtn").onclick = () => {
@@ -401,6 +439,7 @@ function setView(name) {
   for (const key of Object.keys(VIEWS)) $(`view-${key}`).hidden = key !== name;
   document.querySelectorAll(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === meta.nav));
   if (name === "upload") resetUpload();
+  if (name === "feedback") renderFeedback();
   if (name === "stats") renderStats();
   if (name === "keys") renderApiKeys();
 }
@@ -627,6 +666,94 @@ $("uploadSubmitBtn").onclick = async () => {
     if (error.message !== "unauthorized") toast(error.message, true);
   }
 };
+
+/* ---- báo sai ---- */
+const REASON_LABELS = { wrong_info: "Sai thông tin", missing_info: "Thiếu ý", off_topic: "Không đúng câu hỏi", other: "Khác" };
+const FEEDBACK_STATUS = { open: "Chưa xử lý", resolved: "Đã sửa", dismissed: "Bỏ qua" };
+let feedbackFilter = "open";
+
+function setFeedbackCount(count) {
+  $("feedbackCount").textContent = count;
+  $("feedbackCount").hidden = !count;
+}
+async function loadFeedbackCount() {
+  try { setFeedbackCount((await api("/feedback?status=open")).open_count); } catch { /* chỉ là số đếm phụ */ }
+}
+document.querySelectorAll("[data-fstatus]").forEach(tab => {
+  tab.onclick = () => {
+    feedbackFilter = tab.dataset.fstatus;
+    document.querySelectorAll("[data-fstatus]").forEach(t => t.classList.toggle("active", t === tab));
+    renderFeedback();
+  };
+});
+
+function inlineBold(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br>");
+}
+
+async function renderFeedback() {
+  const box = $("feedbackList");
+  box.innerHTML = '<p class="empty">Đang tải báo cáo…</p>';
+  let data;
+  try {
+    data = await api(`/feedback?status=${feedbackFilter}`);
+  } catch (error) {
+    if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  setFeedbackCount(data.open_count);
+  if (!data.items.length) {
+    box.innerHTML = `<div class="card editor-empty"><div class="rule"></div><p>${feedbackFilter === "open" ? "Chưa có báo cáo nào cần xử lý" : "Không có báo cáo nào"}</p><p>Nhân viên bấm “Báo sai” dưới câu trả lời của trợ lý thì báo cáo sẽ hiện ở đây.</p></div>`;
+    return;
+  }
+  box.innerHTML = data.items.map(item => `
+    <section class="card fb-card">
+      <div class="fb-head">
+        <div class="fb-tags">
+          <span class="badge fb-reason">${escapeHtml(REASON_LABELS[item.reason] || item.reason)}</span>
+          <span class="badge ${item.status === "open" ? "" : item.status === "resolved" ? "approved" : "rejected"}">${escapeHtml(FEEDBACK_STATUS[item.status] || item.status)}</span>
+        </div>
+        <span class="fb-meta">${escapeHtml(item.user_email || "Không rõ người báo")} · ${new Date(item.created_at).toLocaleString("vi-VN")}</span>
+      </div>
+      <div class="fb-body">
+        <div class="fb-block"><span class="fb-label">Câu hỏi</span><p class="fb-question">${escapeHtml(item.question)}</p></div>
+        <div class="fb-block"><span class="fb-label">Trợ lý đã trả lời</span><div class="fb-answer">${inlineBold(item.answer)}</div></div>
+        ${item.note ? `<div class="fb-note"><strong>Ghi chú của người báo:</strong> ${escapeHtml(item.note)}</div>` : ""}
+        ${(item.citations || []).length ? `<div class="fb-block"><span class="fb-label">Nguồn trợ lý đã dùng</span><div class="fb-sources">${item.citations.map(c => `<button type="button" class="fb-source" data-source="${escapeHtml(c.source)}" title="Mở tài liệu này trong Tri thức"><strong>${escapeHtml(c.source)}</strong>${escapeHtml(c.heading || "")} →</button>`).join("")}</div></div>` : '<p class="muted">Câu trả lời không trích nguồn nào.</p>'}
+      </div>
+      <div class="actions fb-actions">
+        ${item.status !== "resolved" ? `<button class="btn btn-secondary btn-sm" data-fb="${escapeHtml(item.id)}" data-to="resolved">Đã sửa xong</button>` : ""}
+        ${item.status !== "dismissed" ? `<button class="btn btn-ghost btn-sm" data-fb="${escapeHtml(item.id)}" data-to="dismissed">Bỏ qua (trợ lý không sai)</button>` : ""}
+        ${item.status !== "open" ? `<button class="btn btn-outline btn-sm" data-fb="${escapeHtml(item.id)}" data-to="open">Mở lại</button>` : ""}
+      </div>
+    </section>`).join("");
+  box.querySelectorAll("[data-fb]").forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await api(`/feedback/${btn.dataset.fb}/status`, { method: "POST", body: JSON.stringify({ status: btn.dataset.to }) });
+        toast(btn.dataset.to === "resolved" ? "Đã đánh dấu đã sửa." : btn.dataset.to === "dismissed" ? "Đã bỏ qua báo cáo." : "Đã mở lại báo cáo.");
+        await renderFeedback();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+  box.querySelectorAll("[data-source]").forEach(btn => { btn.onclick = () => openSourceNote(btn.dataset.source); });
+}
+
+/* Mở đúng tài liệu bị trích trong mục Tri thức để sửa: lọc "Tất cả" + tìm theo tên nguồn. */
+async function openSourceNote(source) {
+  statusFilter = "all";
+  document.querySelectorAll(".tab[data-status]").forEach(t => t.classList.toggle("active", t.dataset.status === "all"));
+  $("noteSearch").value = source;
+  listQuery = source.toLocaleLowerCase("vi");
+  currentId = null;
+  setView("notes");
+  await loadNotes();
+  const match = notes.find(note => note.title === source) || notes.find(note => String(note.title).toLocaleLowerCase("vi").includes(listQuery));
+  if (match) openNote(match.id);
+  else toast("Không tìm thấy tài liệu khớp tên — xem danh sách kết quả tìm kiếm.", true);
+}
 
 /* ---- thống kê ---- */
 async function renderStats() {

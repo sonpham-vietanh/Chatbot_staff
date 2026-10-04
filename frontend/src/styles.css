@@ -54,6 +54,16 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .thread-row .del { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; background: transparent; border: 0; color: #8A8BB0; cursor: pointer; }
 .thread-row .del:hover { color: #fff; }
 
+/* ---- báo sai ---- */
+.report-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; background: none; border: 0; color: #54556E; font-weight: 600; cursor: pointer; }
+.report-trigger:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px; }
+.report-reason { padding: 8px 14px; background: #fff; border: 1px solid #E7E5DA; border-radius: 0; color: #14153A; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s; }
+.report-reason:hover { background: #FBF6DC; }
+.report-reason.active { background: #14153A; border-color: #14153A; color: #fff; }
+.report-note { width: 100%; padding: 12px 14px; border: 1px solid #E7E5DA; border-radius: 6px; background: #FAF9F4; color: #1A1A2E; line-height: 1.6; resize: vertical; outline: none; }
+.report-note:focus { border-color: #14153A; background: #fff; box-shadow: 0 0 0 3px #E2E3F0; }
+.btn-report-send { height: 44px; padding: 0 20px; background: #14153A; color: #fff; }
+
 /* ---- trò chuyện ---- */
 .suggestion { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 20px 24px; background: #fff; border: 0; text-align: left; cursor: pointer; transition: background .15s; }
 .suggestion + .suggestion { border-top: 1px solid #E7E5DA; }

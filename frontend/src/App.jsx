@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Menu, Plus, X } from 'lucide-react'
+import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 
 // Logo chính thức (header website truongvietanh.com), phục vụ từ /brand của backend.
@@ -300,6 +300,29 @@ function App() {
     }
   }
 
+  /** Nút "Báo sai": gửi nguyên văn câu hỏi + câu trả lời + nguồn để admin kiểm tra. */
+  async function reportAnswer(index, { reason, note }) {
+    const answer = messages[index]
+    const previousQuestion = messages.slice(0, index).reverse().find((message) => message.role === 'user')
+    const response = await authFetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: previousQuestion?.text || '(không rõ câu hỏi)',
+        answer: answer.text,
+        citations: answer.citations || [],
+        reason,
+        note: note || null,
+        thread_id: activeThreadId,
+      }),
+    })
+    if (!response.ok) {
+      const data = await readApiResponse(response)
+      throw new Error(data.detail || 'Chưa gửi được báo cáo, vui lòng thử lại.')
+    }
+    setMessages((current) => current.map((message, i) => (i === index ? { ...message, reported: true } : message)))
+  }
+
   async function ask(value = question) {
     const text = value.trim()
     if (!text || loading) return
@@ -333,7 +356,7 @@ function App() {
         loadThreads()
       }
     } catch (error) {
-      setMessages((current) => [...current, { role: 'assistant', text: `Không thể xử lý câu hỏi. ${error.message || 'Kiểm tra backend FastAPI ở port 8000.'}` }])
+      setMessages((current) => [...current, { role: 'assistant', error: true, text: `Không thể xử lý câu hỏi. ${error.message || 'Kiểm tra backend FastAPI ở port 8000.'}` }])
     } finally {
       setLoading(false)
     }
@@ -432,7 +455,7 @@ function App() {
           <div className="mx-auto max-w-[760px]">
             {messages.length === 0 && !loading ? <EmptyState firstName={firstName} onAsk={ask} /> : (
               <div className="flex flex-col gap-8">
-                {messages.map((message, index) => <Message key={`${message.role}-${index}`} message={message} />)}
+                {messages.map((message, index) => <Message key={`${message.role}-${index}`} message={message} onReport={(payload) => reportAnswer(index, payload)} />)}
                 {loading && (
                   <div className="flex items-center gap-4">
                     <div className="va-mark">VA</div>
@@ -574,7 +597,59 @@ function renderMessageText(text) {
   })
 }
 
-function Message({ message }) {
+const REPORT_REASONS = [
+  { value: 'wrong_info', label: 'Sai thông tin' },
+  { value: 'missing_info', label: 'Thiếu ý' },
+  { value: 'off_topic', label: 'Không đúng câu hỏi' },
+  { value: 'other', label: 'Khác' },
+]
+
+function ReportForm({ onSubmit, onCancel }) {
+  const [reason, setReason] = useState('wrong_info')
+  const [note, setNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  async function submit(event) {
+    event.preventDefault()
+    setSending(true)
+    setError('')
+    try {
+      await onSubmit({ reason, note: note.trim() })
+    } catch (err) {
+      setError(err.message)
+      setSending(false)
+    }
+  }
+  return (
+    <form onSubmit={submit} className="mt-3 flex flex-col gap-3 rounded-lg border border-line bg-white p-4">
+      <span className="font-bold text-navy">Câu trả lời này sai ở đâu?</span>
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Lý do báo sai">
+        {REPORT_REASONS.map((item) => (
+          <button key={item.value} type="button" role="radio" aria-checked={reason === item.value} onClick={() => setReason(item.value)} className={`report-reason ${reason === item.value ? 'active' : ''}`}>{item.label}</button>
+        ))}
+      </div>
+      <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} placeholder="Ghi chú thêm (tuỳ chọn), ví dụ: thông tin đúng là…" aria-label="Ghi chú" className="report-note" />
+      {error && <p className="text-danger" role="alert">{error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <button disabled={sending} className="btn btn-report-send">{sending ? 'Đang gửi...' : 'Gửi báo cáo'}</button>
+        <button type="button" onClick={onCancel} className="btn-link">Huỷ</button>
+      </div>
+    </form>
+  )
+}
+
+function ReportControl({ message, onReport }) {
+  const [open, setOpen] = useState(false)
+  if (message.reported) return <p className="mt-3 font-semibold text-success">Đã gửi báo cáo, cảm ơn bạn. Admin sẽ kiểm tra lại câu trả lời này.</p>
+  if (open) return <ReportForm onSubmit={onReport} onCancel={() => setOpen(false)} />
+  return (
+    <button type="button" onClick={() => setOpen(true)} className="report-trigger mt-3">
+      <Flag size={16} /> Báo sai
+    </button>
+  )
+}
+
+function Message({ message, onReport }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -600,6 +675,7 @@ function Message({ message }) {
             </div>
           </div>
         )}
+        {!message.error && onReport && <ReportControl message={message} onReport={onReport} />}
       </div>
     </div>
   )

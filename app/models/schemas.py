@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
@@ -102,6 +103,22 @@ class AnalyticsSummary(BaseModel):
     grounded_count: int
     top_sources: list[TopSource]
     top_questions: list[TopQuestion]
+
+
+FeedbackReason = Literal["wrong_info", "missing_info", "off_topic", "other"]
+
+
+class FeedbackCreateRequest(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)]
+    citations: list[Citation] = Field(default_factory=list, max_length=20)
+    reason: FeedbackReason
+    note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None = None
+    thread_id: uuid.UUID | None = None
+
+
+class FeedbackStatusRequest(BaseModel):
+    status: Literal["open", "resolved", "dismissed"]
 
 
 class ApiKeyCreateRequest(BaseModel):
