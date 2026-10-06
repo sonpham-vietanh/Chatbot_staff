@@ -43,6 +43,7 @@ from app.services.report_service import RATE_LIMIT_PER_MINUTE, ReportKeyService,
 from app.services.usage_service import FEATURES, ReportQueryError, UsageService, clamp_limit, parse_time, to_vn
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
+from app.services.llm import LLMError
 from app.services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
@@ -345,6 +346,16 @@ def _log_chat(supabase, question: str, result: dict[str, Any]) -> None:
         pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
 
 
+def _llm_failure(error: Exception) -> HTTPException:
+    """Đổi lỗi gọi dịch vụ AI thành thông báo đúng nguyên nhân (khoá sai, hết hạn mức, quá tải, máy tắt); chi tiết kỹ thuật
+    chỉ nằm trong log, không trả cho người dùng (có thể chứa địa chỉ endpoint)."""
+    logger.warning("Gọi LLM lỗi: %s", error)
+    if isinstance(error, LLMError):
+        headers = {"Retry-After": str(int(error.retry_after or 5))} if error.status == 429 else None
+        return HTTPException(status_code=429 if error.status == 429 else 502, detail=error.user_message, headers=headers)
+    return HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.")
+
+
 def _track(background_tasks: BackgroundTasks, rag: Any, feature: str, user: dict | None = None, meta: dict | None = None) -> None:
     """Ghi sự kiện sử dụng sau khi đã trả response (không làm chậm người dùng). Thiếu dịch vụ -> bỏ qua."""
     usage = getattr(rag, "usage", None)
@@ -376,7 +387,7 @@ def chat_staff(
                 status_code=502,
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
-        raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
+        raise _llm_failure(error) from error
     background_tasks.add_task(
         _persist_chat_turn, history, thread_id, is_new_thread, user["id"], request.question, result["answer"]
     )
@@ -405,7 +416,7 @@ def widget_chat(
                 status_code=502,
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
-        raise HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.") from error
+        raise _llm_failure(error) from error
     # Bên tích hợp hiển thị nguyên văn câu trả lời nên phải là văn bản thuần — giao diện
     # của mình (chat-staff) mới tự render **in đậm**, giao diện đối tác thì không.
     result["answer"] = to_plain_text(result["answer"])

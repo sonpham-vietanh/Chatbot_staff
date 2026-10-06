@@ -32,6 +32,8 @@ services:
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_MODEL: "${LLM_MODEL:-cc/claude-sonnet-5-5}"
+      LLM_FALLBACK_MODEL: "${LLM_FALLBACK_MODEL-cc/claude-sonnet-5}"
+      LLM_MAX_CONCURRENCY: "${LLM_MAX_CONCURRENCY:-2}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_MODEL: "openai/gpt-6-luna"
       OPENROUTER_EMBEDDING_MODEL: "openai/text-embedding-3-small"

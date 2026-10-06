@@ -332,11 +332,20 @@ def test_pipeline_builds_the_right_llm_for_each_setting(monkeypatch):
     from app.services.llm import FallbackLLMProvider, OpenAICompatibleLLMProvider
 
     base = dict(gemini_api_key=None, gemini_model="g", openrouter_api_key="or-key", openrouter_model="m", openrouter_base_url="https://openrouter.ai/api/v1",
-                llm_base_url="https://endpoint.example/v1", llm_api_key="k", llm_model="cc/claude-sonnet-5-5")
+                llm_base_url="https://endpoint.example/v1", llm_api_key="k", llm_model="cc/claude-sonnet-5-5",
+                llm_fallback_model=None, llm_max_concurrency=2)
     chosen = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **base))
     assert isinstance(chosen, FallbackLLMProvider) and chosen.primary.model == "cc/claude-sonnet-5-5" and chosen.secondary.model == "m"
     solo = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "openrouter_api_key": None}))
     assert isinstance(solo, OpenAICompatibleLLMProvider)
+    # Có model dự phòng cùng endpoint: chính -> cc/claude-sonnet-5 -> OpenRouter; không có OpenRouter thì dừng ở model dự phòng
+    full = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "llm_fallback_model": "cc/claude-sonnet-5", "llm_max_concurrency": 3}))
+    assert full.primary.model == "cc/claude-sonnet-5-5" and full.secondary.primary.model == "cc/claude-sonnet-5" and full.secondary.secondary.model == "m"
+    assert full.primary._slots._initial_value == 3
+    no_or = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "llm_fallback_model": "cc/claude-sonnet-5", "openrouter_api_key": None}))
+    assert no_or.primary.model == "cc/claude-sonnet-5-5" and no_or.secondary.model == "cc/claude-sonnet-5"
+    same = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "llm_fallback_model": "cc/claude-sonnet-5-5", "openrouter_api_key": None}))
+    assert isinstance(same, OpenAICompatibleLLMProvider)  # model dự phòng trùng model chính thì bỏ qua
     # Thiếu key/URL: không chết lúc khởi động, quay về OpenRouter
     fallback = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "llm_api_key": None}))
     assert isinstance(fallback, OpenAICompatibleLLMProvider) and fallback.model == "m"
@@ -355,3 +364,141 @@ def test_endpoint_provider_asks_for_a_single_json_and_can_still_join_an_sse_stre
 
     assert _provider(handler).answer("q", [], None) == "Xin chào"
     assert sent["stream"] is False
+
+
+# ---------- theo tài liệu endpoint: 429 + Retry-After, phân loại lỗi, lỗi gốc, timeout ----------
+def test_endpoint_provider_waits_retry_after_once_on_429_then_succeeds(monkeypatch):
+    import httpx
+
+    from app.services import llm as llm_module
+
+    sleeps, calls = [], []
+    monkeypatch.setattr(llm_module.time, "sleep", lambda s: sleeps.append(s))
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": "3"}, json={"error": "slow down"})
+        return httpx_response({"choices": [{"message": {"content": "ok"}}]})
+
+    assert _provider(handler).answer("q", [], None) == "ok"
+    assert sleeps == [3.0] and len(calls) == 2
+
+
+def test_429_retry_is_capped_and_only_happens_once(monkeypatch):
+    import httpx
+    import pytest
+
+    from app.services import llm as llm_module
+    from app.services.llm import LLMError
+
+    sleeps, calls = [], []
+    monkeypatch.setattr(llm_module.time, "sleep", lambda s: sleeps.append(s))
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(429, headers={"Retry-After": "600"}, json={})
+
+    with pytest.raises(LLMError) as caught:
+        _provider(handler).answer("q", [], None)
+    assert sleeps == [llm_module.MAX_RETRY_AFTER] and len(calls) == 2 and caught.value.status == 429
+    # Retry-After không phải số (kiểu ngày giờ): dùng mặc định 2s thay vì sập
+    sleeps.clear()
+    calls.clear()
+    with pytest.raises(LLMError):
+        _provider(lambda request: httpx.Response(429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"})).answer("q", [], None)
+    assert sleeps == [2.0]
+
+
+def test_errors_carry_a_status_and_a_user_message_without_leaking_the_endpoint():
+    import httpx
+    import pytest
+
+    from app.services.llm import LLMError
+
+    cases = {401: "khoá", 403: "khoá", 402: "hạn mức", 429: "quá tải", 503: "tạm thời không phản hồi", 502: "tạm thời không phản hồi"}
+    for status, expected in cases.items():
+        with pytest.raises(LLMError) as caught:
+            _provider(lambda request, s=status: httpx.Response(s, json={"error": "https://endpoint.example/v1 secret"})).answer("q", [], None)
+        assert caught.value.status == status and expected in caught.value.user_message
+        assert "endpoint.example" not in caught.value.user_message and "khoa-test" not in caught.value.user_message
+
+
+def test_connection_failure_is_an_llm_error_and_html_page_is_a_bad_gateway():
+    import httpx
+    import pytest
+
+    from app.services.llm import LLMError
+
+    def down(request):
+        raise httpx.ConnectError("tunnel tắt")
+
+    with pytest.raises(LLMError) as caught:
+        _provider(down).answer("q", [], None)
+    assert caught.value.status is None and "tạm thời không phản hồi" in caught.value.user_message
+    with pytest.raises(LLMError) as html:
+        _provider(lambda request: httpx_response(text="<!DOCTYPE html><html>cloudflare</html>")).answer("q", [], None)
+    assert html.value.status == 502
+
+
+def test_when_every_provider_fails_the_primary_error_is_reported():
+    import pytest
+
+    from app.services.llm import FallbackLLMProvider, LLMError, LLMProvider
+
+    class Failing(LLMProvider):
+        def __init__(self, error):
+            self.error = error
+
+        def answer(self, question, contexts, history=None):
+            raise self.error
+
+        def describe_image(self, image_bytes, mime_type):
+            return ""
+
+    primary_error, backup_error = LLMError("hết hạn mức endpoint", 402), LLMError("máy tắt")
+    provider = FallbackLLMProvider(Failing(primary_error), Failing(backup_error))
+    for _ in range(2):  # lần 2 phương án chính đang nghỉ nhưng vẫn báo đúng nguyên nhân gốc
+        with pytest.raises(LLMError) as caught:
+            provider.answer("q", [])
+        assert caught.value is primary_error
+
+
+def test_routes_turn_llm_errors_into_the_right_http_response():
+    from app.api.routes import _llm_failure
+    from app.services.llm import LLMError
+
+    rate = _llm_failure(LLMError("x", 429, 7))
+    assert rate.status_code == 429 and rate.headers["Retry-After"] == "7"
+    key = _llm_failure(LLMError("x", 401))
+    assert key.status_code == 502 and "khoá" in key.detail and key.headers is None
+    assert _llm_failure(ValueError("khác")).status_code == 502
+
+
+def test_endpoint_model_without_cc_prefix_is_warned(caplog):
+    import logging
+
+    from app.services.llm import build_llm_provider
+
+    with caplog.at_level(logging.WARNING):
+        build_llm_provider("openai_compatible", "k", "claude-sonnet-5-5", "https://endpoint.example/v1")
+    assert "cc/" in caplog.text
+    caplog.clear()
+    build_llm_provider("openai_compatible", "k", "cc/claude-sonnet-5-5", "https://endpoint.example/v1")
+    assert "cc/" not in caplog.text
+
+
+def test_endpoint_provider_uses_at_least_ninety_seconds_for_answers():
+    import httpx
+
+    provider = _provider(lambda request: httpx_response({}))
+    seen = {}
+
+    def handler(request):
+        seen["timeout"] = request.extensions["timeout"]
+        return httpx_response({"choices": [{"message": {"content": "ok"}}]})
+
+    import httpx as _h
+    provider._http = _h.Client(transport=_h.MockTransport(handler))
+    provider.answer("q", [], None)
+    assert seen["timeout"]["read"] >= 90

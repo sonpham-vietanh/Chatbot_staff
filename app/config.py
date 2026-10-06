@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     """Endpoint kiểu OpenAI tự dựng (vd. https://xxx/v1) cho LLM_PROVIDER=openai_compatible. KHÔNG công khai địa chỉ này."""
     llm_api_key: str | None = None
     llm_model: str = "cc/claude-sonnet-5-5"
+    llm_fallback_model: str | None = "cc/claude-sonnet-5"
+    """Model dự phòng trên CÙNG endpoint khi model chính lỗi (vd. 503/404). Rỗng = không dùng."""
+    llm_max_concurrency: int = 2
+    """Số lời gọi đồng thời tối đa MỖI worker tới endpoint tự dựng. Endpoint chịu được khoảng 6–9 lời gọi cùng lúc
+    cho cả app, nên: số worker (UVICORN_WORKERS, mặc định 4) × giá trị này ≤ 9."""
     admin_token: str | None = None
     admin_emails: str | None = None
     """Email (cách nhau bởi dấu phẩy) của admin được sửa mọi note ở trang /quan-ly, kể cả phòng

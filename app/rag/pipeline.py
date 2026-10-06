@@ -94,11 +94,20 @@ class AdvancedRAGPipeline:
             logger.error("LLM_PROVIDER=openai_compatible nhưng thiếu LLM_API_KEY/LLM_BASE_URL — tạm dùng OpenRouter")
             provider = "openrouter"
         if provider == "openai_compatible":
-            primary = build_llm_provider(provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+            slots = settings.llm_max_concurrency
+            primary = build_llm_provider(provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url, slots)
+            # Chuỗi dự phòng: model chính -> model dự phòng cùng endpoint -> OpenRouter (nếu có key)
+            chain = []
+            if settings.llm_fallback_model and settings.llm_fallback_model != settings.llm_model:
+                chain.append(build_llm_provider(provider, settings.llm_api_key, settings.llm_fallback_model, settings.llm_base_url, slots))
             if settings.openrouter_api_key:  # endpoint tự dựng chạy trên máy cá nhân có thể tắt: có đường dự phòng
-                backup = build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
-                return FallbackLLMProvider(primary, backup)
-            return primary
+                chain.append(build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url))
+            if not chain:
+                return primary
+            tail = chain[-1]
+            for backup in reversed(chain[:-1]):
+                tail = FallbackLLMProvider(backup, tail)
+            return FallbackLLMProvider(primary, tail)
         if provider == "openrouter":
             return build_llm_provider(provider, settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
         return build_llm_provider(provider, settings.gemini_api_key, settings.gemini_model, "https://generativelanguage.googleapis.com")

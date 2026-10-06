@@ -131,6 +131,8 @@ OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
 ADMIN_TOKEN=<token tự đặt cho /admin>
 ```
 
+**Dùng endpoint Claude tự dựng** (thay OpenRouter): đặt `LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL` (kết thúc bằng `/v1`), `LLM_API_KEY`, `LLM_MODEL=cc/claude-sonnet-5-5` (tên model BẮT BUỘC có tiền tố `cc/`). Có thêm `LLM_FALLBACK_MODEL` (mặc định `cc/claude-sonnet-5`, tự chuyển sang khi model chính lỗi) và `LLM_MAX_CONCURRENCY` (số lời gọi đồng thời mỗi worker; endpoint chịu ~6–9 lời gọi cho cả app nên `UVICORN_WORKERS × giá trị này ≤ 9`). Gặp 429 thì chờ theo `Retry-After` rồi thử lại một lần; thiếu `OPENROUTER_API_KEY` thì không có đường dự phòng cuối. Chưa có credit embeddings thì đặt thêm `RETRIEVAL_MODE=lexical` (tìm theo từ khoá, không cần embeddings). Địa chỉ endpoint và khoá KHÔNG công khai, không commit.
+
 Muốn bật nhánh Ingest Agent (vault Obsidian tự nạp tri thức) thì thêm `ANTHROPIC_API_KEY`, `VAULT_PATH` (và trên Windows: `CLAUDE_CLI_PATH` trỏ tới binary `claude` native). Không set `VAULT_PATH`/`ANTHROPIC_API_KEY` thì `VaultWatcher` không khởi động, hệ thống vẫn chạy bình thường qua `/admin`.
 
 `SUPABASE_SERVICE_KEY` là secret — không commit, không dán vào chat công khai. Không ghi API key vào source code.

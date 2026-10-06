@@ -11,6 +11,28 @@ from app.rag.prompt_builder import FALLBACK_ANSWER, build_prompt
 
 logger = logging.getLogger(__name__)
 
+MAX_RETRY_AFTER = 15.0
+"""Chờ tối đa bấy nhiêu giây theo header Retry-After khi bị 429 — lâu hơn thì người dùng bỏ đi, không đáng chờ."""
+
+
+class LLMError(RuntimeError):
+    """Lỗi gọi dịch vụ AI, kèm mã HTTP để lớp API đưa ra thông báo đúng nguyên nhân (không lộ địa chỉ/khoá endpoint)."""
+
+    def __init__(self, message: str, status: int | None = None, retry_after: float | None = None):
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+
+    @property
+    def user_message(self) -> str:
+        if self.status in (401, 403):
+            return "Khoá truy cập dịch vụ AI không đúng hoặc đã bị khoá. Hãy báo quản trị viên để kiểm tra khoá."
+        if self.status == 402:
+            return "Dịch vụ AI đã hết hạn mức. Hãy báo quản trị viên."
+        if self.status == 429:
+            return "Dịch vụ AI đang quá tải, hãy thử lại sau ít giây."
+        return "Dịch vụ AI tạm thời không phản hồi (có thể máy chạy dịch vụ đang tắt). Hãy thử lại sau ít phút."
+
 IMAGE_DESCRIBE_PROMPT = (
     "Mô tả ngắn gọn nội dung hình ảnh này bằng tiếng Việt. Nếu ảnh chứa bảng số liệu, chữ, "
     "biểu đồ hay văn bản — hãy chép lại chính xác toàn bộ chữ/số đó. Nếu ảnh chỉ mang tính "
@@ -119,23 +141,39 @@ class OpenAICompatibleLLMProvider(LLMProvider):
     def _chat(self, messages: list[dict], max_tokens: int, temperature: float, timeout: float) -> str:
         """Một lời gọi chat. Lỗi HTTP, trả về không phải JSON (vd. trang HTML khi máy chạy endpoint tắt), hay
         không có nội dung đều ném RuntimeError để lớp trên quyết định (báo lỗi hoặc chuyển phương án dự phòng)."""
-        with self._slots:
-            response = self._http.post(
-                self.url, headers=self._headers(), timeout=timeout,
-                json={"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False},
-            )
+        payload = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False}
+        for attempt in (1, 2):
+            try:
+                with self._slots:
+                    response = self._http.post(self.url, headers=self._headers(), timeout=timeout, json=payload)
+            except httpx.HTTPError as error:  # không kết nối được / hết thời gian: máy chạy endpoint hoặc đường hầm tắt
+                raise LLMError(f"{self.label} không kết nối được: {type(error).__name__}") from error
+            if response.status_code == 429 and attempt == 1:
+                # Gọi quá nhanh: chờ đúng số giây endpoint yêu cầu (nhả slot trong lúc chờ) rồi thử lại một lần
+                time.sleep(self._retry_after(response))
+                continue
+            break
         if response.is_error:
-            raise RuntimeError(f"{self.label} HTTP {response.status_code}: {response.text[:300]}")
+            raise LLMError(f"{self.label} HTTP {response.status_code}: {response.text[:300]}",
+                           response.status_code, self._retry_after(response) if response.status_code == 429 else None)
         try:
             if response.text.lstrip().startswith("data:"):  # endpoint vẫn trả luồng SSE dù đã xin stream=false
                 content = self._join_stream(response.text)
             else:
                 content = response.json()["choices"][0]["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError) as error:
-            raise RuntimeError(f"{self.label} trả về dữ liệu không đúng dạng tin nhắn: {response.text[:200]!r}") from error
+            raise LLMError(f"{self.label} trả về dữ liệu không đúng dạng tin nhắn: {response.text[:200]!r}", 502) from error
         if isinstance(content, list):
             content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         return str(content or "").strip()
+
+    @staticmethod
+    def _retry_after(response: httpx.Response) -> float:
+        try:
+            seconds = float(response.headers.get("retry-after", ""))
+        except ValueError:
+            seconds = 2.0
+        return min(max(seconds, 0.0), MAX_RETRY_AFTER)
 
     @staticmethod
     def _join_stream(raw: str) -> str:
@@ -188,15 +226,23 @@ class FallbackLLMProvider(LLMProvider):
         self.secondary = secondary
         self.cooldown = cooldown
         self._skip_primary_until = 0.0
+        self._primary_error: Exception | None = None
 
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
         if time.monotonic() >= self._skip_primary_until:
             try:
                 return self.primary.answer(question, contexts, history)
-            except Exception:
+            except Exception as error:
                 logger.warning("LLM chính lỗi, chuyển sang phương án dự phòng trong %.0fs", self.cooldown, exc_info=True)
                 self._skip_primary_until = time.monotonic() + self.cooldown
-        return self.secondary.answer(question, contexts, history)
+                self._primary_error = error
+        try:
+            return self.secondary.answer(question, contexts, history)
+        except Exception:
+            # Cả hai đều lỗi: báo lỗi của phương án CHÍNH (nguyên nhân gốc), không phải lỗi của phương án dự phòng
+            if self._primary_error is not None:
+                raise self._primary_error
+            raise
 
     def complete(self, prompt: str, max_tokens: int = 200) -> str:
         provider = self.secondary if time.monotonic() < self._skip_primary_until else self.primary
@@ -208,7 +254,8 @@ class FallbackLLMProvider(LLMProvider):
 
 
 def build_llm_provider(name: str, api_key: str | None = None,
-                       model: str = "gemini-2.5-flash", base_url: str = "https://openrouter.ai/api/v1") -> LLMProvider:
+                       model: str = "gemini-2.5-flash", base_url: str = "https://openrouter.ai/api/v1",
+                       max_concurrency: int | None = None) -> LLMProvider:
     if name == "mock":
         return MockLLMProvider()
     if name == "gemini":
@@ -222,5 +269,7 @@ def build_llm_provider(name: str, api_key: str | None = None,
     if name == "openai_compatible":
         if not api_key or not base_url:
             raise ValueError("LLM_API_KEY và LLM_BASE_URL phải được cấu hình khi LLM_PROVIDER=openai_compatible")
-        return OpenAICompatibleLLMProvider(api_key, model, base_url, max_concurrency=2, label="LLM endpoint")
+        if not model.startswith("cc/"):
+            logger.warning("LLM_MODEL=%r không có tiền tố 'cc/' — endpoint sẽ báo không tìm thấy model", model)
+        return OpenAICompatibleLLMProvider(api_key, model, base_url, max_concurrency=max_concurrency or 2, label="LLM endpoint")
     raise ValueError(f"LLM provider chưa được hỗ trợ: {name}")
