@@ -1,16 +1,20 @@
 import logging
 import mimetypes
+from functools import lru_cache
+from urllib.parse import quote, urlencode
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from app.api.routes import get_rag_service, router
 from app.config import get_settings
 from app.services.api_key_service import normalize_origin
+from app.services.sso_service import SsoError, SsoService
 from app.services.vault_watcher import VaultWatcher
 
 # Mac dinh Python khong co handler nao ca - log INFO cua vault_watcher (vd xac nhan
@@ -91,6 +95,50 @@ def demo_ui(embed_key: str | None = None) -> FileResponse:
             frame_ancestors = f"'self' {allowed_origin}"
             get_rag_service().api_keys.touch_last_used(record["id"])
     response.headers["Content-Security-Policy"] = f"frame-ancestors {frame_ancestors}"
+    response.headers["Cache-Control"] = NO_CACHE
+    return response
+
+
+@lru_cache
+def get_sso_service() -> SsoService:
+    settings = get_settings()
+    return SsoService(settings.supabase_url, settings.supabase_service_key, settings.supabase_anon_key,
+                      settings.os_sso_secret, settings.allowed_email_domains)
+
+
+def _track_sso_login(email: str) -> None:
+    try:
+        get_rag_service().usage.log("dang_nhap_os", {"email": email})
+    except Exception:
+        logging.getLogger(__name__).warning("Không ghi được sự kiện đăng nhập từ Major OS", exc_info=True)
+
+
+@app.get("/sso/os", include_in_schema=False)
+def sso_from_major_os(token: str = "") -> RedirectResponse:
+    """Đăng nhập 1 lần từ Major OS (xem app/services/sso_service.py). Phiên trả về qua URL
+    fragment để token không bao giờ đi lên server/log; giao diện React tự đọc rồi xoá đi."""
+    sso = get_sso_service()
+    try:
+        email = sso.verify_token(token)
+        session = sso.create_session(email)
+    except SsoError as error:
+        logging.getLogger(__name__).warning("SSO Major OS bị từ chối: %s", error)
+        response = RedirectResponse(f"/?sso_error={quote(str(error))}", status_code=303)
+    else:
+        fragment = urlencode({"sso_access": session["access_token"], "sso_refresh": session["refresh_token"]})
+        response = RedirectResponse(f"/#{fragment}", status_code=303, background=BackgroundTask(_track_sso_login, email))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.get("/quan-ly", include_in_schema=False)
+def manage_ui() -> FileResponse:
+    """Trang quản lý tri thức cho leader — cùng ứng dụng React với trang chat (App.jsx chọn màn hình
+    theo đường dẫn); quyền được kiểm tra ở API /api/manage/*, không phải ở đây."""
+    index = FRONTEND_DIST / "index.html"
+    response = FileResponse(index if index.is_file() else Path(__file__).parent / "static" / "index.html")
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
     response.headers["Cache-Control"] = NO_CACHE
     return response
 

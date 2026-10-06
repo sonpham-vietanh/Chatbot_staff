@@ -36,7 +36,7 @@ class AdminService:
 
     def create_note(self, title: str, department: str, content: str,
                      access_level: str = "staff", status: str = "draft",
-                     created_by: str = "Admin") -> dict[str, Any]:
+                     created_by: str = "Admin", source_file: str | None = None) -> dict[str, Any]:
         rows = self.client.insert("knowledge_notes", [{
             "title": title,
             "department": department or "Unassigned",
@@ -44,6 +44,7 @@ class AdminService:
             "access_level": access_level,
             "status": status,
             "created_by": created_by,
+            **({"source_file": source_file} if source_file else {}),
         }])
         note = rows[0]
         self._sync_chunks(note)

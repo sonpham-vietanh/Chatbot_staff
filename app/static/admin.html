@@ -203,6 +203,7 @@
   .keys { max-width: 900px; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
   @media (max-width: 640px) { .keys { padding: 16px; } }
   .keys > .card:first-child { padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+  .keys > .card.pad { padding: 28px; display: flex; flex-direction: column; gap: 16px; }
   .keys h2 { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy); }
   .key-card { overflow: hidden; }
   .key-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 28px; border-bottom: 1px solid var(--line); }
@@ -252,6 +253,8 @@
     <button class="nav-item" data-view="feedback"><span class="dot"></span>Báo sai<span class="nav-count" id="feedbackCount" hidden></span></button>
     <button class="nav-item" data-view="upload"><span class="dot"></span>Upload file</button>
     <button class="nav-item" data-view="stats"><span class="dot"></span>Thống kê</button>
+    <button class="nav-item" data-view="leaders"><span class="dot"></span>Leader</button>
+    <button class="nav-item" data-view="report"><span class="dot"></span>Kết nối Major OS</button>
     <button class="nav-item" data-view="keys"><span class="dot"></span>API nhúng</button>
     <div class="side-foot">
       <a href="/">← Về trợ lý nội bộ</a>
@@ -332,6 +335,12 @@
       <!-- Thống kê -->
       <div class="stats" id="view-stats" hidden></div>
 
+      <!-- Kết nối Major OS -->
+      <div class="keys" id="view-report" hidden></div>
+
+      <!-- Leader phòng ban -->
+      <div class="keys" id="view-leaders" hidden></div>
+
       <!-- API nhúng -->
       <div class="keys" id="view-keys" hidden></div>
     </div>
@@ -353,6 +362,8 @@ const VIEWS = {
   upload: { crumb: "Tri thức", title: "Upload file", nav: "upload" },
   feedback: { crumb: "Chất lượng", title: "Câu trả lời bị báo sai", nav: "feedback" },
   stats: { crumb: "Báo cáo", title: "Thống kê câu hỏi", nav: "stats" },
+  leaders: { crumb: "Phân quyền", title: "Leader phòng ban", nav: "leaders" },
+  report: { crumb: "Tích hợp", title: "Kết nối Major OS", nav: "report" },
   keys: { crumb: "Tích hợp", title: "API nhúng", nav: "keys" },
 };
 let token = sessionStorage.getItem("admin_token") || "";
@@ -432,6 +443,7 @@ $("logoutBtn").onclick = () => { sessionStorage.removeItem("admin_token"); token
 /* ---- điều hướng ---- */
 function setView(name) {
   view = name;
+  if (name !== "report") freshReportKey = null;  // key vừa tạo chỉ hiện một lần, rời trang là mất
   const meta = VIEWS[name];
   $("crumb").textContent = meta.crumb;
   $("pageTitle").textContent = meta.title;
@@ -441,6 +453,8 @@ function setView(name) {
   if (name === "upload") resetUpload();
   if (name === "feedback") renderFeedback();
   if (name === "stats") renderStats();
+  if (name === "leaders") renderLeaders();
+  if (name === "report") renderReportKeys();
   if (name === "keys") renderApiKeys();
 }
 document.querySelectorAll(".nav-item").forEach(btn => { btn.onclick = () => setView(btn.dataset.view); });
@@ -546,6 +560,7 @@ async function openNote(id) {
   $("editor").innerHTML = `
     <div class="editor-body">
       ${isGapNote(note) ? '<div class="gap-box"><strong>Câu hỏi chưa có dữ liệu.</strong> Nhân viên đã hỏi nhưng trợ lý không tìm thấy tài liệu. Bổ sung nội dung rồi duyệt để trợ lý trả lời được.</div>' : ""}
+      ${String(note.source_file || "").startsWith("vault:") ? `<div class="gap-box"><strong>Note này lấy từ wiki Obsidian</strong> (${escapeHtml(note.source_file.slice(6))}). Hãy sửa nội dung trong Obsidian — sửa ở đây sẽ bị ghi đè ở lần wiki đồng bộ tiếp theo.</div>` : ""}
       <div class="grid-2">
         <label class="field full">Tiêu đề<input data-field="title" value="${escapeHtml(note.title)}"></label>
         <label class="field">Phòng ban<select data-field="department">${departmentOptions(note.department)}</select></label>
@@ -903,6 +918,207 @@ async function renderApiKeys() {
         await api(`/api-keys/${btn.dataset.delete}`, { method: "DELETE" });
         toast("Đã xoá key.");
         await renderApiKeys();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+}
+
+/* ---- leader phòng ban ---- */
+const LEADER_DEPARTMENTS = { HR: "Nhân sự", Finance: "Tài chính", Academic: "Học thuật", Admin: "Vận hành" };
+
+async function renderLeaders() {
+  const box = $("view-leaders");
+  let leaders;
+  try {
+    leaders = await api("/leaders");
+  } catch (error) {
+    if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const rows = leaders.map(l => `
+    <section class="card key-card">
+      <div class="key-head">
+        <div>
+          <div class="name"><strong>${escapeHtml(l.display_name || l.email)}</strong><span class="badge ${l.active ? "active" : "revoked"}">${l.active ? "Đang hoạt động" : "Đã tắt"}</span></div>
+          <span class="meta">${escapeHtml(l.email)} · ${(l.departments || []).map(d => escapeHtml(LEADER_DEPARTMENTS[d] || d)).join(", ") || "chưa có phòng ban"}</span>
+        </div>
+        <div class="btns">
+          <button class="btn btn-outline btn-sm" data-edit="${escapeHtml(l.email)}">Sửa</button>
+          <button class="btn btn-danger btn-sm" data-remove="${escapeHtml(l.email)}">Xoá</button>
+        </div>
+      </div>
+    </section>`).join("");
+
+  box.innerHTML = `
+    <section class="card">
+      <h2>Thêm / sửa leader</h2>
+      <p class="muted">Leader đăng nhập trợ lý bằng email công ty rồi vào <strong>${escapeHtml(window.location.origin)}/quan-ly</strong> để thêm, sửa, xoá tri thức của đúng phòng ban mình (xem được phòng khác nhưng không sửa được). Sửa xong chatbot dùng bản mới ngay, mọi thay đổi đều có lịch sử để khôi phục. Email của bạn trong biến ADMIN_EMAILS là admin — sửa được mọi phòng.</p>
+      <div class="grid-2">
+        <label class="field">Email công ty<input id="leaderEmail" type="email" placeholder="ten@truongvietanh.com" inputmode="email"></label>
+        <label class="field">Họ tên (tuỳ chọn)<input id="leaderName" placeholder="Vd: Nguyễn Văn A"></label>
+      </div>
+      <fieldset style="border: 0; padding: 0; margin: 0;">
+        <legend style="font-weight: 700; margin-bottom: 8px;">Phòng ban được sửa</legend>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px 24px;">
+          ${Object.entries(LEADER_DEPARTMENTS).map(([value, label]) => `<label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" name="leaderDept" value="${value}" style="width: 20px; height: 20px;"> ${label}</label>`).join("")}
+        </div>
+      </fieldset>
+      <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" id="leaderActive" checked style="width: 20px; height: 20px;"> Đang hoạt động</label>
+      <div><button class="btn btn-secondary" id="saveLeaderBtn">Lưu leader</button></div>
+    </section>
+    ${rows || '<p class="muted">Chưa có leader nào. Thêm email leader và phòng ban ở trên.</p>'}`;
+
+  $("saveLeaderBtn").onclick = async () => {
+    const email = $("leaderEmail").value.trim().toLowerCase();
+    const departments = [...box.querySelectorAll('input[name="leaderDept"]:checked')].map(i => i.value);
+    if (!email.includes("@")) { toast("Nhập email hợp lệ.", true); return; }
+    if (!departments.length) { toast("Chọn ít nhất 1 phòng ban.", true); return; }
+    try {
+      await api("/leaders", { method: "PUT", body: JSON.stringify({ email, display_name: $("leaderName").value.trim(), departments, active: $("leaderActive").checked }) });
+      toast("Đã lưu leader.");
+      await renderLeaders();
+    } catch (error) {
+      if (error.message !== "unauthorized") toast(error.message, true);
+    }
+  };
+  box.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.onclick = () => {
+      const leader = leaders.find(l => l.email === btn.dataset.edit);
+      $("leaderEmail").value = leader.email;
+      $("leaderName").value = leader.display_name || "";
+      $("leaderActive").checked = leader.active;
+      box.querySelectorAll('input[name="leaderDept"]').forEach(i => { i.checked = (leader.departments || []).includes(i.value); });
+      $("leaderEmail").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+  });
+  box.querySelectorAll("[data-remove]").forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm(`Xoá quyền leader của ${btn.dataset.remove}? Các note họ đã sửa vẫn giữ nguyên.`)) return;
+      try {
+        await api(`/leaders?email=${encodeURIComponent(btn.dataset.remove)}`, { method: "DELETE" });
+        toast("Đã xoá leader.");
+        await renderLeaders();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+}
+
+/* ---- kết nối Major OS (API báo cáo chỉ-đọc) ---- */
+const REPORT_ENDPOINTS = [
+  ["kiem-tra", "Thử kết nối — chỉ xác nhận key hợp lệ"],
+  ["tinh-nang", "Danh mục tính năng (khoá → tên hiển thị)"],
+  ["su-kien", "Nhật ký sử dụng: ai, lúc nào, tính năng nào (lọc tu/den, phân trang con trỏ)"],
+  ["gop-y", "Góp ý của người dùng (\"Báo sai\") và trạng thái xử lý"],
+  ["canh-bao", "Cảnh báo nghiệp vụ hiện tại"],
+  ["tong-quan", "Số liệu tổng hợp: xếp hạng, tính năng ít dùng, tỷ lệ trả lời được"],
+];
+let freshReportKey = null;
+
+async function downloadReportSpec() {
+  try {
+    const res = await fetch(`${API}/report-spec`, { headers: headers() });
+    if (res.status === 401 || res.status === 503) { showLogin("Token không hợp lệ."); return; }
+    if (!res.ok) throw new Error("Không tải được file mô tả.");
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "mo-ta-api-bao-cao-tro-ly-noi-bo.md";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function renderReportKeys() {
+  const box = $("view-report");
+  let keys;
+  try {
+    keys = await api("/report-keys");
+  } catch (error) {
+    if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const base = window.location.origin;
+  const fresh = freshReportKey ? `
+    <section class="card key-card">
+      <div class="key-body">
+        <span class="label">Key vừa tạo — chỉ hiện MỘT LẦN, hãy dán ngay vào Major OS → Kết nối app</span>
+        ${snippet(freshReportKey.label, freshReportKey.key)}
+        <p class="note-box"><strong>Lưu ý:</strong> không gửi key qua chat, Zalo hay email. Rời khỏi trang này là không xem lại được; mất key thì tạo key mới và thu hồi key cũ.</p>
+      </div>
+    </section>` : "";
+  const rows = keys.map(k => {
+    const active = k.status === "active";
+    return `
+    <section class="card key-card">
+      <div class="key-head">
+        <div>
+          <div class="name"><strong>${escapeHtml(k.label)}</strong><span class="badge ${active ? "active" : "revoked"}">${active ? "Đang hoạt động" : "Đã thu hồi"}</span></div>
+          <span class="meta">vr_…${escapeHtml(k.key_hint)} · tạo ${new Date(k.created_at).toLocaleDateString("vi-VN")}${k.last_used_at ? ` · Major OS gọi gần nhất ${new Date(k.last_used_at).toLocaleString("vi-VN")}` : " · chưa có lần gọi nào"}</span>
+        </div>
+        <div class="btns">
+          ${active ? `<button class="btn btn-outline btn-sm" data-rrevoke="${escapeHtml(k.id)}">Thu hồi</button>` : ""}
+          <button class="btn btn-danger btn-sm" data-rdelete="${escapeHtml(k.id)}">Xoá</button>
+        </div>
+      </div>
+    </section>`;
+  }).join("");
+
+  box.innerHTML = `
+    <section class="card pad">
+      <h2>API báo cáo cho Major OS</h2>
+      <p class="muted">Major OS đọc báo cáo sử dụng của trợ lý (ai dùng, tính năng nào, góp ý, cảnh báo) qua các địa chỉ dưới đây. Chỉ-đọc, mỗi key gọi tối đa 120 lần/phút, thu hồi key là có hiệu lực ngay.</p>
+      <div class="snippet"><span>Danh sách endpoint (HTTPS, GET, header Authorization: Bearer &lt;key&gt;)</span>
+        <div class="box"><pre>${REPORT_ENDPOINTS.map(([path, text]) => `${base}/api/report/${path}\n    ${text}`).map(escapeHtml).join("\n")}</pre></div></div>
+      <div><button class="btn btn-secondary" id="downloadSpecBtn">Tải file mô tả (.md) để đưa Major OS</button></div>
+    </section>
+    <section class="card pad">
+      <h2>Tạo key cho Major OS</h2>
+      <label class="field">Tên key<input id="newReportKeyLabel" placeholder="Vd: Major OS — production" maxlength="100"></label>
+      <div><button class="btn btn-secondary" id="createReportKeyBtn">Tạo key</button></div>
+    </section>
+    ${fresh}
+    ${rows || '<p class="muted">Chưa có key nào.</p>'}`;
+
+  $("downloadSpecBtn").onclick = downloadReportSpec;
+  $("createReportKeyBtn").onclick = async () => {
+    const label = $("newReportKeyLabel").value.trim();
+    if (!label) { toast("Cần nhập tên key.", true); return; }
+    try {
+      freshReportKey = await api("/report-keys", { method: "POST", body: JSON.stringify({ label }) });
+      toast("Đã tạo key — copy ngay, sẽ không hiện lại.");
+      await renderReportKeys();
+    } catch (error) {
+      if (error.message !== "unauthorized") toast(error.message, true);
+    }
+  };
+  box.querySelectorAll("[data-copy]").forEach(button => { button.onclick = () => copyText(button.dataset.copy); });
+  box.querySelectorAll("[data-rrevoke]").forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm("Thu hồi key này? Major OS sẽ không đọc được báo cáo cho đến khi dùng key mới.")) return;
+      try {
+        await api(`/report-keys/${btn.dataset.rrevoke}/revoke`, { method: "POST" });
+        toast("Đã thu hồi key.");
+        await renderReportKeys();
+      } catch (error) {
+        if (error.message !== "unauthorized") toast(error.message, true);
+      }
+    };
+  });
+  box.querySelectorAll("[data-rdelete]").forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm("Xoá vĩnh viễn key này?")) return;
+      try {
+        await api(`/report-keys/${btn.dataset.rdelete}`, { method: "DELETE" });
+        toast("Đã xoá key.");
+        await renderReportKeys();
       } catch (error) {
         if (error.message !== "unauthorized") toast(error.message, true);
       }

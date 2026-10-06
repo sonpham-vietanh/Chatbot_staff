@@ -214,3 +214,144 @@ def test_chat_still_answers_when_gap_note_cannot_be_saved():
     pipeline.admin.create_note = broken_create_note
 
     assert pipeline.chat("Câu hỏi không có dữ liệu") == {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
+
+
+def test_prompt_tells_the_model_today_so_it_never_guesses_the_year():
+    from datetime import datetime, timezone
+
+    from app.rag.prompt_builder import build_prompt, today_notice
+
+    notice = today_notice(datetime(2026, 10, 5, 23, 30, tzinfo=timezone.utc))  # 23:30 UTC = 06:30 sáng 6/10 giờ Việt Nam
+    assert "Thứ Ba, ngày 06/10/2026" in notice
+    assert "HÔM NAY:" in build_prompt("tôi thử việc từ tháng 9 năm nay", [])
+
+
+def test_missing_doc_marker_is_hidden_from_users_and_still_files_a_gap_note():
+    from app.rag.prompt_builder import MISSING_DOC_RE
+
+    for raw in ("[THIẾU_TÀI_LIỆU]", "**[THIẾU TÀI LIỆU]**", "[ thiếu_tài_liệu ]"):
+        assert MISSING_DOC_RE.sub("", f"Trả lời.\n{raw}").strip() == "Trả lời."
+
+
+# ---------- LLM qua endpoint kiểu OpenAI + dự phòng ----------
+def _provider(handler, **kwargs):
+    import httpx
+
+    from app.services.llm import OpenAICompatibleLLMProvider
+
+    provider = OpenAICompatibleLLMProvider("khoa-test", "cc/claude-sonnet-5-5", "https://endpoint.example/v1", **kwargs)
+    provider._http = httpx.Client(transport=httpx.MockTransport(handler))
+    return provider
+
+
+def test_endpoint_provider_sends_bearer_model_and_no_openrouter_headers():
+    import json
+
+    seen = {}
+
+    def handler(request):
+        seen.update(url=str(request.url), auth=request.headers["authorization"], referer=request.headers.get("http-referer"),
+                    body=json.loads(request.content))
+        return httpx_response({"choices": [{"message": {"content": "  Xin chào  "}}]})
+
+    answer = _provider(handler).answer("hỏi?", [], None)
+    assert answer == "Xin chào"
+    assert seen["url"] == "https://endpoint.example/v1/chat/completions" and seen["auth"] == "Bearer khoa-test"
+    assert seen["referer"] is None and seen["body"]["model"] == "cc/claude-sonnet-5-5" and seen["body"]["max_tokens"] == 2000
+
+
+def httpx_response(payload=None, status=200, text=None):
+    import httpx
+
+    return httpx.Response(status, json=payload) if text is None else httpx.Response(status, text=text)
+
+
+def test_endpoint_provider_rejects_html_and_error_pages_instead_of_showing_them_to_staff():
+    import pytest
+
+    for response in (httpx_response(text="<html>tunnel offline</html>"), httpx_response({"error": "x"}, status=502),
+                     httpx_response({"choices": []}), httpx_response({"content": [{"text": "kiểu anthropic"}]})):
+        with pytest.raises(RuntimeError):
+            _provider(lambda request, r=response: r).answer("q", [], None)
+    # việc phụ (viết lại câu hỏi) lỗi thì trả rỗng, không ném
+    assert _provider(lambda request: httpx_response(text="<html>")).complete("p") == ""
+
+
+def test_endpoint_provider_limits_concurrent_calls():
+    import threading
+    import time
+
+    active, peak, lock = 0, 0, threading.Lock()
+
+    def handler(request):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return httpx_response({"choices": [{"message": {"content": "ok"}}]})
+
+    provider = _provider(handler, max_concurrency=2)
+    threads = [threading.Thread(target=provider.answer, args=("q", [], None)) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert peak <= 2
+
+
+def test_fallback_switches_to_backup_and_skips_a_dead_primary_for_a_while():
+    from app.services.llm import FallbackLLMProvider, LLMProvider
+
+    class Stub(LLMProvider):
+        def __init__(self, reply=None):
+            self.reply, self.calls = reply, 0
+
+        def answer(self, question, contexts, history=None):
+            self.calls += 1
+            if self.reply is None:
+                raise RuntimeError("tunnel tắt")
+            return self.reply
+
+        def describe_image(self, image_bytes, mime_type):
+            return ""
+
+    primary, backup = Stub(), Stub("từ dự phòng")
+    provider = FallbackLLMProvider(primary, backup, cooldown=60)
+    assert provider.answer("q", []) == "từ dự phòng" and provider.answer("q", []) == "từ dự phòng"
+    assert primary.calls == 1 and backup.calls == 2  # lần 2 không thử lại phương án chính đang chết
+    provider._skip_primary_until = 0  # hết thời gian nghỉ
+    primary.reply = "chính hồi phục"
+    assert provider.answer("q", []) == "chính hồi phục"
+
+
+def test_pipeline_builds_the_right_llm_for_each_setting(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.rag.pipeline import AdvancedRAGPipeline
+    from app.services.llm import FallbackLLMProvider, OpenAICompatibleLLMProvider
+
+    base = dict(gemini_api_key=None, gemini_model="g", openrouter_api_key="or-key", openrouter_model="m", openrouter_base_url="https://openrouter.ai/api/v1",
+                llm_base_url="https://endpoint.example/v1", llm_api_key="k", llm_model="cc/claude-sonnet-5-5")
+    chosen = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **base))
+    assert isinstance(chosen, FallbackLLMProvider) and chosen.primary.model == "cc/claude-sonnet-5-5" and chosen.secondary.model == "m"
+    solo = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "openrouter_api_key": None}))
+    assert isinstance(solo, OpenAICompatibleLLMProvider)
+    # Thiếu key/URL: không chết lúc khởi động, quay về OpenRouter
+    fallback = AdvancedRAGPipeline._build_llm(SimpleNamespace(llm_provider="openai_compatible", **{**base, "llm_api_key": None}))
+    assert isinstance(fallback, OpenAICompatibleLLMProvider) and fallback.model == "m"
+
+
+def test_endpoint_provider_asks_for_a_single_json_and_can_still_join_an_sse_stream():
+    import json
+
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        chunks = ['{"choices":[{"delta":{"role":"assistant"}}]}', '{"choices":[{"delta":{"content":"Xin "}}]}',
+                  '{"choices":[{"delta":{"content":"chào"}}]}', '{"choices":[{"delta":{},"finish_reason":"stop"}]}']
+        return httpx_response(text="".join(f"data: {c}\n\n" for c in chunks) + "data: [DONE]\n\n")
+
+    assert _provider(handler).answer("q", [], None) == "Xin chào"
+    assert sent["stream"] is False

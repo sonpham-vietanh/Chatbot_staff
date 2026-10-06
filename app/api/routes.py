@@ -1,10 +1,13 @@
+from datetime import datetime, timezone
 from functools import lru_cache
 import logging
 import secrets
 from typing import Any, Literal
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, PlainTextResponse
+from pathlib import Path
 
 from app.config import Settings, get_settings
 from app.models.schemas import (
@@ -16,6 +19,10 @@ from app.models.schemas import (
     ChatResponse,
     FeedbackCreateRequest,
     FeedbackStatusRequest,
+    LeaderUpsertRequest,
+    ManageNoteCreateRequest,
+    ManageNoteUpdateRequest,
+    ReportKeyCreateRequest,
     LoginRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
@@ -31,6 +38,9 @@ from app.services.api_key_service import ApiKeyNotFoundError, ApiKeyService, nor
 from app.services.auth_service import AuthError, AuthService, is_public_auth_key
 from app.services.chat_history_service import ChatHistoryService
 from app.services.feedback_service import FeedbackNotFoundError, FeedbackService
+from app.services.manage_service import ManageError, ManageService
+from app.services.report_service import RATE_LIMIT_PER_MINUTE, ReportKeyService, ReportService
+from app.services.usage_service import FEATURES, ReportQueryError, UsageService, clamp_limit, parse_time, to_vn
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.rag_service import RAGService
@@ -64,6 +74,22 @@ def get_api_key_service(rag: RAGService = Depends(get_rag_service)) -> ApiKeySer
 
 def get_feedback_service(rag: RAGService = Depends(get_rag_service)) -> FeedbackService:
     return rag.feedback
+
+
+def get_manage_service(rag: RAGService = Depends(get_rag_service)) -> ManageService:
+    return rag.manage
+
+
+def get_usage_service(rag: RAGService = Depends(get_rag_service)) -> UsageService:
+    return rag.usage
+
+
+def get_report_service(rag: RAGService = Depends(get_rag_service)) -> ReportService:
+    return rag.report
+
+
+def get_report_key_service(rag: RAGService = Depends(get_rag_service)) -> ReportKeyService:
+    return rag.report_keys
 
 
 def get_employee_directory(rag: RAGService = Depends(get_rag_service)) -> EmployeeDirectoryService:
@@ -319,6 +345,13 @@ def _log_chat(supabase, question: str, result: dict[str, Any]) -> None:
         pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
 
 
+def _track(background_tasks: BackgroundTasks, rag: Any, feature: str, user: dict | None = None, meta: dict | None = None) -> None:
+    """Ghi sự kiện sử dụng sau khi đã trả response (không làm chậm người dùng). Thiếu dịch vụ -> bỏ qua."""
+    usage = getattr(rag, "usage", None)
+    if usage is not None:
+        background_tasks.add_task(usage.log, feature, user, meta)
+
+
 @router.post("/chat-staff", response_model=ChatResponse)
 def chat_staff(
     request: ChatRequest,
@@ -348,6 +381,7 @@ def chat_staff(
         _persist_chat_turn, history, thread_id, is_new_thread, user["id"], request.question, result["answer"]
     )
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
+    _track(background_tasks, rag, "hoi_dap", user, {"tra_loi_duoc": bool(result["grounded"]), "so_nguon": len(result["citations"])})
     return ChatResponse(**result, thread_id=thread_id)
 
 
@@ -376,14 +410,18 @@ def widget_chat(
     # của mình (chat-staff) mới tự render **in đậm**, giao diện đối tác thì không.
     result["answer"] = to_plain_text(result["answer"])
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
+    _track(background_tasks, rag, "hoi_dap_nhung", None,
+           {"tra_loi_duoc": bool(result["grounded"]), "so_nguon": len(result["citations"]), "nguon": _widget.get("label")})
     return ChatResponse(**result)
 
 
 @router.post("/feedback")
 def report_wrong_answer(
     body: FeedbackCreateRequest,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(require_user),
     feedback: FeedbackService = Depends(get_feedback_service),
+    rag: RAGService = Depends(get_rag_service),
 ) -> dict[str, str]:
     """Nút "Báo sai" trên giao diện chat. Lưu nguyên văn câu hỏi/câu trả lời/nguồn để admin
     kiểm tra được kể cả khi cuộc trò chuyện đã bị xoá."""
@@ -393,7 +431,128 @@ def report_wrong_answer(
     except Exception as error:
         logger.warning("Không lưu được báo cáo sai", exc_info=True)
         raise HTTPException(status_code=503, detail="Chưa gửi được báo cáo, vui lòng thử lại sau.") from error
+    _track(background_tasks, rag, "bao_sai", user, {"ly_do": payload.get("reason")})
     return {"status": "received", "id": str(record.get("id", ""))}
+
+
+def _manage_call(action, *args, **kwargs):
+    """Chuyển lỗi nghiệp vụ/DB của trang quản lý thành mã HTTP rõ ràng cho giao diện."""
+    try:
+        return action(*args, **kwargs)
+    except ManageError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    except NoteNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.warning("Lỗi trang quản lý tri thức", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Chưa thực hiện được — kiểm tra đã chạy migration 20261005000000_knowledge_leaders_and_history.sql trên Supabase chưa.",
+        ) from error
+
+
+@router.get("/manage/me")
+def manage_me(user: dict = Depends(require_user), manage: ManageService = Depends(get_manage_service)) -> dict:
+    return _manage_call(manage.profile, user.get("email"))
+
+
+@router.get("/manage/notes")
+def manage_list_notes(
+    q: str = Query("", max_length=100),
+    department: str = Query("", max_length=30),
+    user: dict = Depends(require_user),
+    manage: ManageService = Depends(get_manage_service),
+) -> list[dict]:
+    profile = _manage_call(manage.profile, user.get("email"))
+    return _manage_call(manage.list_notes, profile, q, department)
+
+
+@router.post("/manage/notes")
+def manage_create_note(
+    body: ManageNoteCreateRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+    manage: ManageService = Depends(get_manage_service),
+    rag: RAGService = Depends(get_rag_service),
+) -> dict:
+    profile = _manage_call(manage.profile, user.get("email"))
+    note = _manage_call(manage.create_note, profile, body.title, body.department, body.content, body.status, body.access_level)
+    _track(background_tasks, rag, "tao_tri_thuc", user, {"phong_ban": note.get("department")})
+    return {"id": note["id"]}
+
+
+@router.get("/manage/notes/{note_id}")
+def manage_get_note(note_id: str, user: dict = Depends(require_user), manage: ManageService = Depends(get_manage_service)) -> dict:
+    profile = _manage_call(manage.profile, user.get("email"))
+    return _manage_call(manage.get_note, profile, note_id)
+
+
+@router.put("/manage/notes/{note_id}")
+def manage_update_note(
+    note_id: str,
+    body: ManageNoteUpdateRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+    manage: ManageService = Depends(get_manage_service),
+    rag: RAGService = Depends(get_rag_service),
+) -> dict:
+    profile = _manage_call(manage.profile, user.get("email"))
+    note = _manage_call(manage.update_note, profile, note_id, body.model_dump(exclude_none=True))
+    _track(background_tasks, rag, "sua_tri_thuc", user, {"phong_ban": note.get("department")})
+    return {"id": note["id"]}
+
+
+@router.delete("/manage/notes/{note_id}")
+def manage_delete_note(
+    note_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+    manage: ManageService = Depends(get_manage_service),
+    rag: RAGService = Depends(get_rag_service),
+) -> dict:
+    profile = _manage_call(manage.profile, user.get("email"))
+    _manage_call(manage.delete_note, profile, note_id)
+    _track(background_tasks, rag, "xoa_tri_thuc", user)
+    return {"status": "deleted"}
+
+
+@router.get("/manage/notes/{note_id}/versions")
+def manage_versions(note_id: str, user: dict = Depends(require_user), manage: ManageService = Depends(get_manage_service)) -> list[dict]:
+    profile = _manage_call(manage.profile, user.get("email"))
+    return _manage_call(manage.versions, profile, note_id)
+
+
+@router.post("/manage/notes/{note_id}/restore/{version_id}")
+def manage_restore(
+    note_id: str,
+    version_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_user),
+    manage: ManageService = Depends(get_manage_service),
+    rag: RAGService = Depends(get_rag_service),
+) -> dict:
+    profile = _manage_call(manage.profile, user.get("email"))
+    note = _manage_call(manage.restore, profile, note_id, str(version_id))
+    _track(background_tasks, rag, "khoi_phuc_tri_thuc", user, {"phong_ban": note.get("department")})
+    return {"id": note["id"]}
+
+
+@router.get("/admin/leaders", dependencies=[Depends(require_admin)])
+def admin_list_leaders(manage: ManageService = Depends(get_manage_service)) -> list[dict]:
+    return _manage_call(manage.list_leaders)
+
+
+@router.put("/admin/leaders", dependencies=[Depends(require_admin)])
+def admin_upsert_leader(body: LeaderUpsertRequest, manage: ManageService = Depends(get_manage_service)) -> dict:
+    return _manage_call(manage.upsert_leader, body.email, body.display_name, body.departments, body.active)
+
+
+@router.delete("/admin/leaders", dependencies=[Depends(require_admin)])
+def admin_delete_leader(email: str = Query(min_length=3, max_length=200), manage: ManageService = Depends(get_manage_service)) -> dict:
+    _manage_call(manage.delete_leader, email)
+    return {"status": "deleted"}
 
 
 @router.get("/admin/feedback", dependencies=[Depends(require_admin)])
@@ -526,8 +685,172 @@ async def admin_upload_knowledge(
 ) -> dict[str, object]:
     content = await file.read()
     try:
-        return KnowledgeIngestService(rag.admin, rag.llm, rag.vector_store).ingest(file.filename or "upload", content, department, title)
+        return KnowledgeIngestService(rag.admin, rag.llm, getattr(rag, "semantic_store", getattr(rag, "vector_store", None))).ingest(file.filename or "upload", content, department, title)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Không thể ghi dữ liệu vào Supabase: {error}") from error
+
+
+# ---------------------------------------------------------------------------
+# API báo cáo cho Major OS ("Kết nối app với Major OS v2"): chỉ-đọc, key riêng, lọc theo thời gian, phân trang bằng con trỏ.
+# ---------------------------------------------------------------------------
+REPORT_SPEC_PATH = Path(__file__).parent.parent / "static" / "major_os_report_spec.md"
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+def require_report_key(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+    keys: ReportKeyService = Depends(get_report_key_service),
+) -> dict[str, Any]:
+    caller = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()) or (request.client.host if request.client else "?")
+    locked = keys.failures.blocked(caller)
+    if locked:  # IP này vừa gọi sai key quá nhiều lần: chặn trước khi chạm DB
+        raise HTTPException(status_code=429, detail="Gọi sai key quá nhiều lần, thử lại sau.", headers={"Retry-After": str(int(locked) + 1)})
+    if not authorization or not authorization.lower().startswith("bearer ") or not authorization[7:].strip():
+        keys.failures.check(caller)
+        raise HTTPException(status_code=401, detail="Thiếu header Authorization: Bearer <key>", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        record = keys.authenticate(authorization[7:].strip())
+    except Exception as error:
+        logger.warning("Không tra được report key", exc_info=True)
+        raise HTTPException(status_code=503, detail="Dịch vụ tạm thời không khả dụng, vui lòng thử lại sau.") from error
+    if not record:
+        keys.failures.check(caller)
+        raise HTTPException(status_code=401, detail="Key không hợp lệ hoặc đã bị thu hồi", headers={"WWW-Authenticate": "Bearer"})
+    wait = keys.limiter.check(record["id"])
+    if wait:
+        raise HTTPException(status_code=429, detail=f"Gọi quá nhiều (tối đa {RATE_LIMIT_PER_MINUTE} lần/phút).",
+                            headers={"Retry-After": str(int(wait) + 1)})
+    background_tasks.add_task(keys.touch, record)
+    return record
+
+
+def _server_time() -> str:
+    return to_vn(datetime.now(timezone.utc).isoformat())
+
+
+def _report_range(tu: str | None, den: str | None):
+    try:
+        tu_dt, den_dt = parse_time(tu, "tu"), parse_time(den, "den")
+    except ReportQueryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if tu_dt and den_dt and tu_dt > den_dt:
+        raise HTTPException(status_code=422, detail="Tham số tu không được muộn hơn den.")
+    return tu_dt, den_dt
+
+
+def _report_call(action, *args, **kwargs):
+    try:
+        return action(*args, **kwargs)
+    except ReportQueryError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.warning("Lỗi API báo cáo", exc_info=True)
+        raise HTTPException(status_code=503, detail="Chưa lấy được báo cáo — kiểm tra đã chạy migration 20261006000000_usage_events_and_report_keys.sql chưa.") from error
+
+
+@router.get("/report/kiem-tra")
+def report_ping(request: Request, key: dict = Depends(require_report_key)) -> JSONResponse:
+    """Dành cho nút "Thử kết nối" của Major OS: chỉ xác nhận key hợp lệ, không trả dữ liệu người dùng."""
+    return JSONResponse({"ok": True, "ten_app": "Trợ lý nội bộ Trường Việt Anh", "phien_ban": request.app.version,
+                         "gio_may_chu": _server_time(), "nhan_key": key["label"]}, headers=NO_STORE)
+
+
+@router.get("/report/tinh-nang")
+def report_features(_key: dict = Depends(require_report_key)) -> JSONResponse:
+    return JSONResponse({"du_lieu": [{"khoa": k, **v} for k, v in FEATURES.items()]}, headers=NO_STORE)
+
+
+@router.get("/report/su-kien")
+def report_events(
+    tu: str | None = Query(None, max_length=40),
+    den: str | None = Query(None, max_length=40),
+    con_tro: str | None = Query(None, max_length=300),
+    gioi_han: int | None = Query(None, ge=1, le=500),
+    tinh_nang: str | None = Query(None, max_length=60),
+    _key: dict = Depends(require_report_key),
+    usage: UsageService = Depends(get_usage_service),
+) -> JSONResponse:
+    tu_dt, den_dt = _report_range(tu, den)
+    rows, next_cursor = _report_call(usage.list_events, tu=tu_dt, den=den_dt, cursor=con_tro, limit=clamp_limit(gioi_han), feature=tinh_nang)
+    return JSONResponse({"du_lieu": rows, "trang_sau": next_cursor, "gio_may_chu": _server_time()}, headers=NO_STORE)
+
+
+@router.get("/report/gop-y")
+def report_feedback(
+    tu: str | None = Query(None, max_length=40),
+    den: str | None = Query(None, max_length=40),
+    con_tro: str | None = Query(None, max_length=300),
+    gioi_han: int | None = Query(None, ge=1, le=500),
+    _key: dict = Depends(require_report_key),
+    reports: ReportService = Depends(get_report_service),
+) -> JSONResponse:
+    tu_dt, den_dt = _report_range(tu, den)
+    rows, next_cursor = _report_call(reports.feedback_page, tu=tu_dt, den=den_dt, cursor=con_tro, limit=clamp_limit(gioi_han))
+    return JSONResponse({"du_lieu": rows, "trang_sau": next_cursor, "gio_may_chu": _server_time()}, headers=NO_STORE)
+
+
+@router.get("/report/canh-bao")
+def report_alerts(_key: dict = Depends(require_report_key), reports: ReportService = Depends(get_report_service)) -> JSONResponse:
+    return JSONResponse({"du_lieu": _report_call(reports.alerts), "gio_may_chu": _server_time()}, headers=NO_STORE)
+
+
+@router.get("/report/tong-quan")
+def report_summary(
+    tu: str | None = Query(None, max_length=40),
+    den: str | None = Query(None, max_length=40),
+    _key: dict = Depends(require_report_key),
+    usage: UsageService = Depends(get_usage_service),
+) -> JSONResponse:
+    tu_dt, den_dt = _report_range(tu, den)
+    return JSONResponse({**_report_call(usage.summary, tu=tu_dt, den=den_dt), "gio_may_chu": _server_time()}, headers=NO_STORE)
+
+
+# ---- quản trị key + file mô tả (admin token) ----
+@router.get("/admin/report-keys", dependencies=[Depends(require_admin)])
+def admin_list_report_keys(keys: ReportKeyService = Depends(get_report_key_service)) -> list[dict]:
+    return _report_call(keys.list)
+
+
+@router.post("/admin/report-keys", dependencies=[Depends(require_admin)])
+def admin_create_report_key(body: ReportKeyCreateRequest, keys: ReportKeyService = Depends(get_report_key_service)) -> JSONResponse:
+    """Key gốc chỉ hiện trong response này một lần duy nhất."""
+    return JSONResponse(_report_call(keys.create, body.label), headers=NO_STORE)
+
+
+@router.post("/admin/report-keys/{key_id}/revoke", dependencies=[Depends(require_admin)])
+def admin_revoke_report_key(key_id: uuid.UUID, keys: ReportKeyService = Depends(get_report_key_service)) -> dict[str, str]:
+    if not _report_call(keys.revoke, str(key_id)):
+        raise HTTPException(status_code=404, detail="Không tìm thấy key đang hoạt động.")
+    return {"status": "revoked"}
+
+
+@router.delete("/admin/report-keys/{key_id}", dependencies=[Depends(require_admin)])
+def admin_delete_report_key(key_id: uuid.UUID, keys: ReportKeyService = Depends(get_report_key_service)) -> dict[str, str]:
+    _report_call(keys.delete, str(key_id))
+    return {"status": "deleted"}
+
+
+def _public_base_url(request: Request, settings: Settings) -> str:
+    if settings.public_base_url:
+        return settings.public_base_url.rstrip("/")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost"
+    local = host.startswith(("localhost", "127.0.0.1"))
+    return f"{'http' if local else 'https'}://{host}"
+
+
+@router.get("/admin/report-spec", dependencies=[Depends(require_admin)])
+def admin_report_spec(request: Request, settings: Settings = Depends(get_settings)) -> PlainTextResponse:
+    """File mô tả API (mục 5 của tài liệu "Kết nối app với Major OS v2") với địa chỉ thật của máy chủ này."""
+    features = "\n".join(f"| `{key}` | {info['ten']} | {info['mo_ta']} |" for key, info in FEATURES.items())
+    text = (REPORT_SPEC_PATH.read_text(encoding="utf-8")
+            .replace("{{BASE_URL}}", _public_base_url(request, settings))
+            .replace("{{FEATURES_TABLE}}", features)
+            .replace("{{RATE_LIMIT}}", str(RATE_LIMIT_PER_MINUTE)))
+    return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
+                             headers={"Content-Disposition": 'attachment; filename="mo-ta-api-bao-cao-tro-ly-noi-bo.md"'})

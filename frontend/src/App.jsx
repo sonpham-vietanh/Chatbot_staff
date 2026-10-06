@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
+import Manage from './Manage.jsx'
 
 // Logo chính thức (header website truongvietanh.com), phục vụ từ /brand của backend.
 // Chỉ đặt trên nền trắng/kem; trên nền navy dùng wordmark chữ "TRƯỜNG VIỆT ANH".
@@ -15,17 +16,34 @@ const suggestions = [
 const TOKEN_KEY = 'va_token'
 const REFRESH_KEY = 'va_refresh_token'
 
+/** Đăng nhập 1 lần từ Major OS: backend /sso/os trả phiên qua URL fragment (#sso_access=...).
+ * Phải đọc ĐỒNG BỘ ngay lúc khởi tạo state (trước lần render đầu) để màn đăng nhập không nháy lên;
+ * chạy lại lần 2 (React StrictMode) thì fragment đã bị xoá nhưng phiên đã nằm trong localStorage. */
+function consumeSsoFragment() {
+  const fragment = new URLSearchParams(window.location.hash.slice(1))
+  const access = fragment.get('sso_access')
+  const refresh = fragment.get('sso_refresh')
+  if (!access || !refresh) return
+  localStorage.setItem(TOKEN_KEY, access)
+  localStorage.setItem(REFRESH_KEY, refresh)
+  window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
+}
+
 async function readApiResponse(response) {
   const raw = await response.text()
   try {
     return raw ? JSON.parse(raw) : {}
   } catch {
+    // Trang lỗi HTML của proxy/Cloudflare (502, 504, 524...) không được đổ nguyên văn vào khung chat
+    if (/^\s*<(!doctype|html)/i.test(raw)) {
+      return { detail: `Máy chủ tạm thời không phản hồi (HTTP ${response.status}). Thử lại sau ít phút.` }
+    }
     return { detail: raw || `Backend trả về HTTP ${response.status}` }
   }
 }
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  const [token, setToken] = useState(() => { consumeSsoFragment(); return localStorage.getItem(TOKEN_KEY) })
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState('login')
@@ -43,6 +61,7 @@ function App() {
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
+  const [canManage, setCanManage] = useState(false)
   const scrollAnchorRef = useRef(null)
   const tokenRef = useRef(token)
   const refreshingRef = useRef(null)
@@ -51,6 +70,11 @@ function App() {
     let cancelled = false
     ;(async () => {
       const params = new URLSearchParams(window.location.search)
+      const ssoError = params.get('sso_error')
+      if (ssoError) {
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setAuthError(`Không đăng nhập được từ Major OS: ${ssoError}`)
+      }
       try {
         const response = await fetch('/api/auth/config')
         const config = response.ok ? await response.json() : { enabled: false }
@@ -102,6 +126,7 @@ function App() {
         if (!response.ok) throw new Error()
         setUser(await response.json())
         loadThreads()
+        authFetch('/api/manage/me').then((r) => (r.ok ? r.json() : null)).then((p) => setCanManage(Boolean(p?.can_manage))).catch(() => {})
       } catch {
         clearSession()
       } finally {
@@ -389,6 +414,10 @@ function App() {
     )
   }
 
+  if (window.location.pathname.replace(/\/$/, '') === '/quan-ly') {
+    return <Manage authFetch={authFetch} user={user} />
+  }
+
   return (
     <div className="relative flex h-full w-full overflow-hidden">
       <aside className={`dark-surface z-30 flex w-[288px] shrink-0 flex-col px-5 pb-5 pt-7 max-[899px]:absolute max-[899px]:inset-y-0 max-[899px]:left-0 ${mobileNav ? '' : 'max-[899px]:hidden'}`}>
@@ -416,6 +445,7 @@ function App() {
           ))}
         </div>
 
+        {canManage && <a href="/quan-ly" className="btn-dark mt-4 grid place-items-center font-semibold no-underline hover:no-underline">Quản lý tri thức</a>}
         <div className="mt-4 flex items-center gap-3 border-t border-white/[.12] px-2 pt-4">
           <div className="grid h-10 w-10 shrink-0 place-items-center bg-[linear-gradient(180deg,#F9DD0E_0%,#E0B90C_100%)] text-[17px] font-extrabold text-navy">
             {(displayName || user.email || '?').trim().split(/\s+/).pop().slice(0, 1).toUpperCase()}
@@ -474,7 +504,8 @@ function App() {
               <input value={question} onChange={(event) => setQuestion(event.target.value)} className="h-12 min-w-0 flex-1 border-0 bg-transparent text-[17px] text-ink outline-none" placeholder="Hỏi về quy định nội bộ…" aria-label="Câu hỏi" />
               <button disabled={loading || !question.trim()} className="send-btn" aria-label="Gửi câu hỏi"><ArrowUp size={20} strokeWidth={2.6} /></button>
             </div>
-            <p className="mt-2.5 text-center text-muted">Câu trả lời chỉ dựa trên tài liệu nội bộ đã được duyệt.</p>
+            <p className="mt-2.5 text-center text-muted">Câu trả lời dựa trên tài liệu nội bộ đã được duyệt; phần pháp luật chung chỉ để tham khảo.</p>
+            <p className="mt-1 text-center text-muted">Ứng dụng ghi nhận thời gian và tính năng sử dụng để cải thiện sản phẩm.</p>
           </div>
         </form>
       </div>
@@ -527,6 +558,7 @@ function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error, on
           <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} className="btn-link mt-6 self-center">
             {mode === 'login' ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
           </button>
+          <p className="mt-6 text-center text-muted">Ứng dụng ghi nhận thời gian và tính năng sử dụng để cải thiện sản phẩm.</p>
         </div>
       </main>
     </div>

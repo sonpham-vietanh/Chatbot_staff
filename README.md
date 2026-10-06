@@ -126,7 +126,7 @@ SUPABASE_SERVICE_KEY=<service_role secret key, lấy từ Supabase Dashboard > P
 EMBEDDING_PROVIDER=openrouter
 LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=<key của mày>
-OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_MODEL=openai/gpt-6-luna
 OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
 ADMIN_TOKEN=<token tự đặt cho /admin>
 ```

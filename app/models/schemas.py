@@ -121,6 +121,39 @@ class FeedbackStatusRequest(BaseModel):
     status: Literal["open", "resolved", "dismissed"]
 
 
+Department = Literal["HR", "Finance", "Academic", "Admin", "Unassigned"]
+NoteStatus = Literal["draft", "approved", "rejected"]
+AccessLevel = Literal["staff", "manager", "admin"]
+
+
+class ManageNoteCreateRequest(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    department: Department
+    content: Annotated[str, StringConstraints(min_length=1, max_length=100_000)]
+    status: NoteStatus = "approved"
+    access_level: AccessLevel = "staff"
+
+
+class ManageNoteUpdateRequest(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None
+    department: Department | None = None
+    content: Annotated[str, StringConstraints(min_length=1, max_length=100_000)] | None = None
+    status: NoteStatus | None = None
+    access_level: AccessLevel | None = None
+    base_updated_at: str | None = Field(default=None, max_length=64)  # updated_at của bản đang sửa; lệch = có người sửa trước
+
+
+class LeaderUpsertRequest(BaseModel):
+    email: Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=3, max_length=200)]
+    display_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
+    departments: list[Department] = Field(default_factory=list, max_length=5)
+    active: bool = True
+
+
+class ReportKeyCreateRequest(BaseModel):
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
 class ApiKeyCreateRequest(BaseModel):
     # Khớp ràng buộc của bảng api_keys (btrim(label) dài 1..100) để nhãn toàn dấu cách bị
     # trả 422 ở đây thay vì thành lỗi của database -> 500.

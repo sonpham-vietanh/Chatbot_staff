@@ -6,8 +6,9 @@ from typing import Any
 from app.config import Settings
 from app.models.schemas import MAX_HISTORY_ITEMS
 from app.rag.answer_format import clean_markdown, to_plain_text
-from app.rag.embeddings import build_embedding_provider
-from app.rag.prompt_builder import FALLBACK_ANSWER
+from app.rag.embeddings import ZeroEmbeddingProvider, build_embedding_provider
+from app.rag.lexical_store import LexicalStore
+from app.rag.prompt_builder import FALLBACK_ANSWER, MISSING_DOC_RE, build_condense_prompt
 from app.rag.vector_store import VectorStore
 from app.services.admin_service import AdminService
 from app.services.analytics_service import AnalyticsService
@@ -15,12 +16,22 @@ from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
 from app.services.chat_history_service import ChatHistoryService
 from app.services.feedback_service import FeedbackService
+from app.services.manage_service import ManageService
 from app.services.ingest_agent import IngestAgent
-from app.services.llm import build_llm_provider
+from app.services.llm import FallbackLLMProvider, build_llm_provider
 from app.services.supabase_client import SupabaseClient
+from app.services.report_service import ReportKeyService, ReportService
+from app.services.usage_service import UsageService
 from app.services.wiki_sync_service import WikiSyncService
 
 logger = logging.getLogger(__name__)
+
+WEAK_LEXICAL_SCORE = 0.4
+KEYWORD_PROMPT = (
+    "Bạn giúp tìm tài liệu nhân sự nội bộ của một trường học ở Việt Nam. Từ câu hỏi bên dưới, viết 8–14 từ khoá hoặc cụm từ "
+    "tiếng Việt (có dấu) KHÁC NHAU mà tài liệu liên quan có thể dùng: đồng nghĩa, thuật ngữ nhân sự, tên loại tài liệu "
+    "(quy định, quy chế, JD mô tả công việc, hợp đồng, học bổng...). Chỉ trả về danh sách cách nhau bằng dấu phẩy, không giải thích.\n\nCâu hỏi: "
+)
 
 # Phần mở của thẻ nguồn. Mẫu chuẩn là "[Nguồn: ...]", nhưng model đôi khi viết thường/viết
 # hoa, thêm khoảng trắng hoặc bọc đậm ("[**Nguồn:** ...]") — đều phải nhận ra để không lọt
@@ -43,33 +54,91 @@ class AdvancedRAGPipeline:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.supabase = SupabaseClient(settings.supabase_url, settings.supabase_service_key)
-        if settings.embedding_provider == "openrouter":
-            embedding_api_key = settings.openrouter_api_key
-            embedding_model = settings.openrouter_embedding_model
+        self.lexical = settings.retrieval_mode == "lexical"
+        if self.lexical:
+            self.embedding_provider = ZeroEmbeddingProvider(settings.embedding_dimensions)
+            self.vector_store = LexicalStore(self.supabase)
         else:
-            embedding_api_key = settings.gemini_api_key
-            embedding_model = settings.gemini_embedding_model
-        self.embedding_provider = build_embedding_provider(
-            settings.embedding_provider, embedding_api_key, embedding_model, settings.openrouter_base_url
-        )
-        self.vector_store = VectorStore(self.supabase, self.embedding_provider)
-        llm_api_key = settings.openrouter_api_key if settings.llm_provider == "openrouter" else settings.gemini_api_key
-        llm_model = settings.openrouter_model if settings.llm_provider == "openrouter" else settings.gemini_model
-        llm_base_url = settings.openrouter_base_url if settings.llm_provider == "openrouter" else "https://generativelanguage.googleapis.com"
-        self.llm = build_llm_provider(settings.llm_provider, llm_api_key, llm_model, llm_base_url)
+            if settings.embedding_provider == "openrouter":
+                embedding_api_key = settings.openrouter_api_key
+                embedding_model = settings.openrouter_embedding_model
+            else:
+                embedding_api_key = settings.gemini_api_key
+                embedding_model = settings.gemini_embedding_model
+            self.embedding_provider = build_embedding_provider(
+                settings.embedding_provider, embedding_api_key, embedding_model, settings.openrouter_base_url
+            )
+            self.vector_store = VectorStore(self.supabase, self.embedding_provider)
+        # Phát hiện tài liệu trùng nội dung khi upload cần điểm tương đồng ngữ nghĩa; điểm BM25 của một văn bản dài
+        # luôn rất cao nên ở chế độ lexical tắt tính năng này (vẫn còn kiểm tra trùng theo tên).
+        self.semantic_store = None if self.lexical else self.vector_store
+        self.llm = self._build_llm(settings)
         self.admin = AdminService(self.supabase, self.embedding_provider)
         self.auth = AuthService(settings.supabase_url, settings.supabase_anon_key)
         self.chat_history = ChatHistoryService(self.supabase)
         self.analytics = AnalyticsService(self.supabase)
         self.api_keys = ApiKeyService(self.supabase)
         self.feedback = FeedbackService(self.supabase)
+        self.manage = ManageService(self.admin, self.supabase, settings.admin_emails)
+        self.usage = UsageService(self.supabase)
+        self.report = ReportService(self.supabase)
+        self.report_keys = ReportKeyService(self.supabase)
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
-        self.wiki_sync = WikiSyncService(self.admin, settings.vault_path) if settings.vault_path else None
+        self.wiki_sync = WikiSyncService(self.admin, settings.vault_path, recorder=lambda note, kind: self.manage._record(note, kind, "wiki-sync")) if settings.vault_path else None
+
+    @staticmethod
+    def _build_llm(settings: Settings):
+        provider = settings.llm_provider
+        if provider == "openai_compatible" and not (settings.llm_api_key and settings.llm_base_url):
+            # Thiếu cấu hình thì không để app chết lúc khởi động: dùng OpenRouter và kêu to trong log.
+            logger.error("LLM_PROVIDER=openai_compatible nhưng thiếu LLM_API_KEY/LLM_BASE_URL — tạm dùng OpenRouter")
+            provider = "openrouter"
+        if provider == "openai_compatible":
+            primary = build_llm_provider(provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+            if settings.openrouter_api_key:  # endpoint tự dựng chạy trên máy cá nhân có thể tắt: có đường dự phòng
+                backup = build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
+                return FallbackLLMProvider(primary, backup)
+            return primary
+        if provider == "openrouter":
+            return build_llm_provider(provider, settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
+        return build_llm_provider(provider, settings.gemini_api_key, settings.gemini_model, "https://generativelanguage.googleapis.com")
 
     def retrieve(self, question: str, history: list[dict] | None = None) -> list[dict[str, Any]]:
         """Tim kiem KHONG loc theo phong ban - moi nhan vien deu co quyen biet toan bo
         noi dung da duoc duyet vao wiki (chinh sach cua truong, khong phai gioi han ky thuat)."""
-        return self.vector_store.search(self._retrieval_query(question, history), self.settings.top_k)
+        standalone = self._standalone_question(question, history)
+        results = self.vector_store.search(standalone, self.settings.top_k)
+        if self.lexical and (not results or results[0]["score"] < WEAK_LEXICAL_SCORE):
+            results = self._expand_and_merge(standalone, results)
+        return results
+
+    def _expand_and_merge(self, query: str, first: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Kết quả từ khoá đầu yếu (người dùng diễn đạt khác hẳn tài liệu): nhờ mô hình đưa thêm từ khoá/đồng nghĩa rồi
+        tìm lại. Chỉ dùng khi cần — luôn mở rộng thì từ khoá phụ lấn át từ khoá chính và kết quả đầu tụt đi."""
+        try:
+            keywords = " ".join(self.llm.complete(KEYWORD_PROMPT + query, max_tokens=120).split())
+        except Exception:
+            return first
+        if not keywords:
+            return first
+        merged = {item["id"]: item for item in first}
+        for item in self.vector_store.search(f"{query} {keywords}", self.settings.top_k):
+            if item["id"] not in merged or item["score"] > merged[item["id"]]["score"]:
+                merged[item["id"]] = item
+        return sorted(merged.values(), key=lambda item: -item["score"])[: self.settings.top_k]
+
+    def _standalone_question(self, question: str, history: list[dict] | None) -> str:
+        """Câu hỏi nối tiếp ("còn giáo viên thì sao?") không tự tìm được tài liệu: nhờ mô hình viết lại
+        thành câu đầy đủ. Lỗi/rỗng/quá dài thì quay về cách nối chuỗi đơn giản."""
+        fallback = self._retrieval_query(question, history)
+        if not history:
+            return question
+        try:
+            rewritten = " ".join(self.llm.complete(build_condense_prompt(question, history), max_tokens=150).split())
+        except Exception:
+            logger.warning("Không viết lại được câu hỏi nối tiếp", exc_info=True)
+            return fallback
+        return rewritten if 5 <= len(rewritten) <= 400 else fallback
 
     def search(self, question: str, department: str | None = None) -> list[dict[str, Any]]:
         """Dung cho /api/debug/search (da gate require_admin) - admin co the loc thu
@@ -90,13 +159,15 @@ class AdvancedRAGPipeline:
         answer = unicodedata.normalize("NFC", self.llm.answer(question, context_for_llm, history))
         # Dòng [Nguồn: ...] luôn bị tách khỏi text hiển thị (citation trả về ở trường riêng),
         # và định dạng luôn được làm sạch ở đây — không để từng giao diện tự xử lý.
+        missing_docs = bool(MISSING_DOC_RE.search(answer))
+        answer = MISSING_DOC_RE.sub("", answer).strip()
         display_answer = clean_markdown(self._strip_citation_tags(answer))
         # So khớp trên văn bản thuần: model đôi khi bọc câu từ chối trong **...** hoặc kèm
         # dòng nguồn; rỗng (chỉ có dòng nguồn) cũng coi như không trả lời được.
-        if to_plain_text(display_answer) in ("", FALLBACK_ANSWER):
+        if to_plain_text(display_answer) in ("", FALLBACK_ANSWER) or missing_docs:
             try:
                 self.admin.create_note(
-                    title=f"[CẦN BỔ SUNG] {question}",
+                    title=f"[CẦN BỔ SUNG] {question[:150]}",  # tiêu đề tối đa 200 ký tự khi lưu ở /admin
                     department=asker_department or "Unassigned",
                     content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
                     status="draft",
@@ -106,7 +177,8 @@ class AdvancedRAGPipeline:
                 # Note "cần bổ sung" chỉ là ghi nhận cho HR — ghi lỗi thì người hỏi vẫn phải
                 # nhận được câu từ chối bình thường, không phải lỗi 502.
                 logger.warning("Không tạo được note [CẦN BỔ SUNG] cho câu hỏi: %s", question, exc_info=True)
-            return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
+            if to_plain_text(display_answer) in ("", FALLBACK_ANSWER):
+                return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
         citations = self._parse_citations(answer, results) if grounded_seeds else []
         return {"answer": display_answer, "grounded": bool(citations), "citations": citations}
 

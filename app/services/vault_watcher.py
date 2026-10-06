@@ -266,7 +266,7 @@ class VaultWatcher:
             return
 
         try:
-            sync_result = self.wiki_sync.sync_all(wipe=True, status="approved")
+            sync_result = self.wiki_sync.sync_all(status="approved")
         except Exception:
             # Supabase loi luc dong bo KHONG duoc lam nguon nay bi coi la "chua xu ly"
             # (se chay lai Ingest Agent moi 30s chung nao Supabase con loi).

@@ -34,6 +34,17 @@ class MockEmbeddingProvider(EmbeddingProvider):
         return [value / norm for value in vector]
 
 
+class ZeroEmbeddingProvider(EmbeddingProvider):
+    """Vector toàn số 0 cho chế độ RETRIEVAL_MODE=lexical: cột embedding của bảng knowledge_chunks bắt buộc có giá trị
+    nhưng tìm theo từ khoá không dùng tới. Muốn quay lại tìm bằng embeddings thì phải chạy scripts/reindex_embeddings.py."""
+
+    def __init__(self, dimensions: int = 1536):
+        self.dimensions = dimensions
+
+    def embed(self, text: str) -> list[float]:
+        return [0.0] * self.dimensions
+
+
 class GeminiEmbeddingProvider(EmbeddingProvider):
     """Embedding thật qua Gemini; API key chỉ lấy từ biến môi trường."""
 
