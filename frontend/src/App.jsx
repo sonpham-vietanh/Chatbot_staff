@@ -455,21 +455,19 @@ function App() {
             <div className="truncate text-[#A9AAC8]">{user.employee?.department || user.email}</div>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button onClick={handleSwitchGoogleAccount} className="btn-dark">Đổi tài khoản</button>
-          <button onClick={handleLogout} className="btn-dark">Đăng xuất</button>
+        <div className="mt-2 flex items-center gap-1 px-1">
+          <button onClick={handleSwitchGoogleAccount} className="side-link">Đổi tài khoản</button>
+          <span className="text-[#6E6F96]" aria-hidden="true">·</span>
+          <button onClick={handleLogout} className="side-link">Đăng xuất</button>
         </div>
       </aside>
       {mobileNav && <div className="absolute inset-0 z-20 bg-[rgba(13,14,43,.45)] min-[900px]:hidden" onClick={() => setMobileNav(false)} />}
 
       <div className="flex min-w-0 flex-1 flex-col bg-cream">
-        <header className="flex items-center justify-between gap-4 border-b border-line bg-white px-4 py-4 sm:px-7">
+        <header className="flex items-center justify-between gap-4 border-b border-line bg-white px-4 py-3.5 sm:px-7">
           <div className="flex min-w-0 items-center gap-3.5">
             <button onClick={() => setMobileNav(true)} className="grid h-11 w-11 shrink-0 place-items-center border border-line bg-white text-navy min-[900px]:hidden" aria-label="Mở menu"><Menu size={20} /></button>
-            <div className="min-w-0">
-              <h1 className="truncate text-lg font-extrabold text-navy">{activeThread?.title || 'Cuộc trò chuyện mới'}</h1>
-              <p className="truncate text-muted">Chỉ trả lời từ tài liệu đã được duyệt</p>
-            </div>
+            <h1 className="min-w-0 truncate text-lg font-extrabold text-navy">{activeThread?.title || 'Cuộc trò chuyện mới'}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-5">
             <div className="flex items-center gap-2 text-ink">
@@ -477,7 +475,7 @@ function App() {
               <span className="hidden sm:inline">{statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}</span>
               <span className="sm:hidden">{statusOnline ? `${approvedCount} tài liệu` : statusPending ? '...' : 'Mất kết nối'}</span>
             </div>
-            <a href="/admin" className="hidden font-bold sm:inline">Quản lý dữ liệu</a>
+            <a href="/admin" className="hidden font-semibold text-muted sm:inline">Quản lý dữ liệu</a>
           </div>
         </header>
 
@@ -504,8 +502,7 @@ function App() {
               <input value={question} onChange={(event) => setQuestion(event.target.value)} className="h-12 min-w-0 flex-1 border-0 bg-transparent text-[17px] text-ink outline-none" placeholder="Hỏi về quy định nội bộ…" aria-label="Câu hỏi" />
               <button disabled={loading || !question.trim()} className="send-btn" aria-label="Gửi câu hỏi"><ArrowUp size={20} strokeWidth={2.6} /></button>
             </div>
-            <p className="mt-2.5 text-center text-muted">Câu trả lời dựa trên tài liệu nội bộ đã được duyệt; phần pháp luật chung chỉ để tham khảo.</p>
-            <p className="mt-1 text-center text-muted">Ứng dụng ghi nhận thời gian và tính năng sử dụng để cải thiện sản phẩm.</p>
+            <p className="mt-2.5 text-center leading-[1.5] text-muted">Câu trả lời dựa trên tài liệu nội bộ đã được duyệt; phần pháp luật chung chỉ để tham khảo. Ứng dụng ghi nhận thời gian và tính năng sử dụng để cải thiện sản phẩm.</p>
           </div>
         </form>
       </div>
@@ -609,7 +606,7 @@ function renderMessageText(text) {
     const isBulletBlock = lines.length > 0 && lines.every((line) => /^\s*[*-]\s+/.test(line))
     if (isBulletBlock) {
       return (
-        <ul key={`b${blockIndex}`} className="mb-2.5 flex list-disc flex-col gap-1.5 pl-[22px]">
+        <ul key={`b${blockIndex}`} className="mb-3 flex list-disc flex-col gap-1 pl-[22px] marker:text-gold-text">
           {lines.map((line, lineIndex) => (
             <li key={`b${blockIndex}-l${lineIndex}`} className={`pl-1 ${/^\s{2,}/.test(line) ? 'ml-5' : ''}`}>{renderInline(line.replace(/^\s*[*-]\s+/, ''), `b${blockIndex}-l${lineIndex}`)}</li>
           ))}
@@ -681,6 +678,25 @@ function ReportControl({ message, onReport }) {
   )
 }
 
+function sectionOf({ source, heading }) {
+  const parts = (heading || '').split('>').map((part) => part.trim()).filter(Boolean)
+  if (parts[0] === source) parts.shift()
+  return parts.join(' › ')
+}
+
+// Mỗi tài liệu chỉ hiện một dòng: tên tài liệu, các mục đã dùng, phiên bản (không lặp lại tên tài liệu trong tên mục)
+function groupCitations(citations) {
+  const groups = new Map()
+  citations.forEach((citation) => {
+    const key = `${citation.source}|${citation.version || ''}`
+    if (!groups.has(key)) groups.set(key, { source: citation.source, version: citation.version, sections: [] })
+    const section = sectionOf(citation)
+    const group = groups.get(key)
+    if (section && !group.sections.includes(section)) group.sections.push(section)
+  })
+  return [...groups.values()]
+}
+
 function Message({ message, onReport }) {
   if (message.role === 'user') {
     return (
@@ -695,16 +711,17 @@ function Message({ message, onReport }) {
       <div className="bot-text min-w-0 flex-1 pt-1 text-[17px] leading-[1.7] text-ink">
         {renderMessageText(message.text)}
         {message.citations?.length > 0 && (
-          <div className="mt-4 flex flex-col gap-2">
+          <div className="mt-5 border-t border-line pt-3">
             <span className="font-bold text-gold-text">Nguồn</span>
-            <div className="flex flex-wrap gap-2">
-              {message.citations.map((citation, index) => (
-                <span key={`${citation.source}-${index}`} className="source-chip">
-                  <strong>{citation.source}</strong>
-                  {citation.heading}{citation.version && citation.version !== 'unknown' ? ` · v${citation.version}` : ''}
-                </span>
+            <ul className="mt-2 flex flex-col gap-2">
+              {groupCitations(message.citations).map((group) => (
+                <li key={`${group.source}-${group.version}`} className="source-item">
+                  <strong>{group.source}</strong>
+                  {group.sections.length > 0 && ` · ${group.sections.join(' · ')}`}
+                  {group.version && group.version !== 'unknown' ? ` · v${group.version}` : ''}
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         )}
         {!message.error && onReport && <ReportControl message={message} onReport={onReport} />}

@@ -350,10 +350,13 @@ def _llm_failure(error: Exception) -> HTTPException:
     """Đổi lỗi gọi dịch vụ AI thành thông báo đúng nguyên nhân (khoá sai, hết hạn mức, quá tải, máy tắt); chi tiết kỹ thuật
     chỉ nằm trong log, không trả cho người dùng (có thể chứa địa chỉ endpoint)."""
     logger.warning("Gọi LLM lỗi: %s", error)
+    # KHÔNG dùng 502/504: Cloudflare thay mọi phản hồi 502/504 của máy chủ gốc bằng trang lỗi HTML riêng của nó,
+    # làm mất thông báo; 503 thì đi qua nguyên vẹn.
     if isinstance(error, LLMError):
         headers = {"Retry-After": str(int(error.retry_after or 5))} if error.status == 429 else None
-        return HTTPException(status_code=429 if error.status == 429 else 502, detail=error.user_message, headers=headers)
-    return HTTPException(status_code=502, detail="LLM hiện không thể xử lý yêu cầu. Kiểm tra log backend.")
+        code = error.status or "kết nối"
+        return HTTPException(status_code=429 if error.status == 429 else 503, detail=f"{error.user_message} (mã: {code})", headers=headers)
+    return HTTPException(status_code=503, detail=f"Trợ lý chưa xử lý được yêu cầu (lỗi: {type(error).__name__}). Kiểm tra log backend.")
 
 
 def _track(background_tasks: BackgroundTasks, rag: Any, feature: str, user: dict | None = None, meta: dict | None = None) -> None:
@@ -384,7 +387,7 @@ def chat_staff(
         message = str(error)
         if "API_KEY_INVALID" in message or "API key not valid" in message:
             raise HTTPException(
-                status_code=502,
+                status_code=503,
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
         raise _llm_failure(error) from error
@@ -413,7 +416,7 @@ def widget_chat(
         message = str(error)
         if "API_KEY_INVALID" in message or "API key not valid" in message:
             raise HTTPException(
-                status_code=502,
+                status_code=503,
                 detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.",
             ) from error
         raise _llm_failure(error) from error

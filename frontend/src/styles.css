@@ -53,6 +53,9 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .thread-row.active .title { color: #fff; }
 .thread-row .del { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; background: transparent; border: 0; color: #8A8BB0; cursor: pointer; }
 .thread-row .del:hover { color: #fff; }
+@media (hover: hover) { .thread-row:not(.active) .del { opacity: 0; } .thread-row:hover .del, .thread-row .del:focus-visible { opacity: 1; } }
+.side-link { padding: 6px 8px; background: none; border: 0; color: #C9CAE0; font-weight: 600; cursor: pointer; }
+.side-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
 
 /* ---- báo sai ---- */
 .report-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; background: none; border: 0; color: #54556E; font-weight: 600; cursor: pointer; }
@@ -71,8 +74,8 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 @media (max-width: 640px) { .suggestion { grid-template-columns: minmax(0, 1fr) auto; } .suggestion .label { grid-column: 1 / -1; } }
 .va-mark { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; background: #14153A; color: #F9DD0E; font-weight: 800; font-size: 16px; letter-spacing: .02em; }
 .bot-text strong { font-weight: 700; color: #14153A; }
-.source-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #fff; border: 1px solid #E7E5DA; border-radius: 3px; color: #54556E; }
-.source-chip strong { font-weight: 700; color: #14153A; }
+.source-item { padding-left: 12px; border-left: 2px solid #E8C40A; line-height: 1.5; color: #54556E; }
+.source-item strong { font-weight: 700; color: #14153A; }
 .send-btn { width: 48px; height: 48px; flex-shrink: 0; display: grid; place-items: center; background: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); border: 0; border-radius: 6px; color: #14153A; cursor: pointer; transition: transform .18s var(--ease), opacity .18s; }
 .send-btn:hover:not(:disabled) { transform: translateY(-2px); }
 .send-btn:disabled { opacity: .45; cursor: not-allowed; }

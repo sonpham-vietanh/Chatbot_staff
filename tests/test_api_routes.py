@@ -84,7 +84,7 @@ def test_widget_chat_auth_and_validation_errors(api):
 
     rag.chat_error = RuntimeError("OpenRouter HTTP 500")
     failed = client.post("/api/widget/chat", headers=headers, json={"question": "Nghỉ phép?"})
-    assert failed.status_code == 502
+    assert failed.status_code == 503  # không dùng 502: Cloudflare thay nó bằng trang HTML
     assert "OpenRouter" not in failed.text  # không lộ chi tiết lỗi nội bộ cho bên tích hợp
 
 

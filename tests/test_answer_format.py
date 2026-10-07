@@ -471,8 +471,9 @@ def test_routes_turn_llm_errors_into_the_right_http_response():
     rate = _llm_failure(LLMError("x", 429, 7))
     assert rate.status_code == 429 and rate.headers["Retry-After"] == "7"
     key = _llm_failure(LLMError("x", 401))
-    assert key.status_code == 502 and "khoá" in key.detail and key.headers is None
-    assert _llm_failure(ValueError("khác")).status_code == 502
+    assert key.status_code == 503 and "khoá" in key.detail and "mã: 401" in key.detail and key.headers is None
+    other = _llm_failure(ValueError("khác"))
+    assert other.status_code == 503 and "ValueError" in other.detail and "khác" not in other.detail
 
 
 def test_endpoint_model_without_cc_prefix_is_warned(caplog):
