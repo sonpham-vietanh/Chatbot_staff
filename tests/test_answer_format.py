@@ -503,3 +503,131 @@ def test_endpoint_provider_uses_at_least_ninety_seconds_for_answers():
     provider._http = _h.Client(transport=_h.MockTransport(handler))
     provider.answer("q", [], None)
     assert seen["timeout"]["read"] >= 90
+
+
+# ---------- OpenRouter ưu tiên, Claude tự đỡ khi OpenRouter lỗi/hết tiền ----------
+def _settings(**overrides):
+    from types import SimpleNamespace
+
+    base = dict(llm_provider="openrouter", gemini_api_key=None, gemini_model="g", openrouter_api_key="or-key", openrouter_model="or-model",
+                openrouter_base_url="https://openrouter.ai/api/v1", llm_base_url="https://endpoint.example/v1", llm_api_key="k",
+                llm_model="cc/claude-sonnet-5-5", llm_fallback_model="cc/claude-sonnet-5", llm_max_concurrency=2)
+    return SimpleNamespace(**{**base, **overrides})
+
+
+def test_openrouter_first_chain_then_claude_models():
+    from app.rag.pipeline import AdvancedRAGPipeline
+    from app.services.llm import FallbackLLMProvider, OpenAICompatibleLLMProvider
+
+    chain = AdvancedRAGPipeline._build_llm(_settings())
+    assert isinstance(chain, FallbackLLMProvider)
+    assert chain.primary.model == "or-model" and chain.primary.label == "OpenRouter"
+    assert chain.secondary.primary.model == "cc/claude-sonnet-5-5" and chain.secondary.secondary.model == "cc/claude-sonnet-5"
+    # chỉ có OpenRouter: không có gì để dự phòng
+    only_or = AdvancedRAGPipeline._build_llm(_settings(llm_api_key=None))
+    assert isinstance(only_or, OpenAICompatibleLLMProvider) and only_or.label == "OpenRouter"
+    # không có khoá OpenRouter nhưng có Claude: dùng Claude, không chết lúc khởi động
+    only_claude = AdvancedRAGPipeline._build_llm(_settings(openrouter_api_key=None))
+    assert only_claude.primary.model == "cc/claude-sonnet-5-5" and only_claude.secondary.model == "cc/claude-sonnet-5"
+    # đảo ưu tiên: Claude trước, OpenRouter sau cùng
+    claude_first = AdvancedRAGPipeline._build_llm(_settings(llm_provider="openai_compatible"))
+    assert claude_first.primary.model == "cc/claude-sonnet-5-5" and claude_first.secondary.secondary.model == "or-model"
+
+
+def test_nothing_configured_reports_the_missing_key_name():
+    import pytest
+
+    from app.rag.pipeline import AdvancedRAGPipeline
+
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        AdvancedRAGPipeline._build_llm(_settings(openrouter_api_key=None, llm_api_key=None))
+
+
+class _Stub:
+    """Giả một LLM: có thể bật/tắt lỗi để thử chuyển phương án và tự quay lại."""
+
+    def __init__(self, name, error=None):
+        from app.services.llm import LLMProvider  # noqa: F401
+
+        self.name, self.error, self.calls = name, error, 0
+
+    def answer(self, question, contexts, history=None):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.name
+
+    def complete_strict(self, prompt, max_tokens=200):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.name
+
+    def complete(self, prompt, max_tokens=200):
+        return ""
+
+    def describe_image(self, image_bytes, mime_type):
+        return self.name
+
+
+def test_out_of_credit_switches_to_claude_in_the_same_request_and_rests_ten_minutes():
+    from app.services.llm import FallbackLLMProvider, LLMError
+
+    openrouter, claude = _Stub("openrouter", LLMError("hết tiền", 402)), _Stub("claude")
+    chain = FallbackLLMProvider(openrouter, claude)
+    assert chain.answer("q", []) == "claude"  # người dùng nhận câu trả lời, không thấy lỗi
+    assert chain.answer("q", []) == "claude" and openrouter.calls == 1  # không thử lại OpenRouter đang hết tiền
+    import time
+    assert chain._skip_primary_until - time.monotonic() > 500
+
+
+def test_pause_depends_on_the_kind_of_failure():
+    import time
+
+    from app.services.llm import FallbackLLMProvider, LLMError
+
+    def pause(error):
+        chain = FallbackLLMProvider(_Stub("a", error), _Stub("b"))
+        chain.answer("q", [])
+        return chain._skip_primary_until - time.monotonic()
+
+    assert 50 < pause(LLMError("429", 429)) <= 60 and 50 < pause(LLMError("tắt", None)) <= 60 and 50 < pause(LLMError("html", 502)) <= 60
+    assert pause(LLMError("sai khoá", 401)) > 500 and pause(LLMError("không có model", 404)) > 500
+    assert pause(LLMError("yêu cầu lạ", 400)) <= 0  # lỗi riêng của một yêu cầu: không bỏ OpenRouter vì nó
+
+
+def test_returns_to_openrouter_by_itself_after_top_up():
+    from app.services.llm import FallbackLLMProvider, LLMError
+
+    openrouter, claude = _Stub("openrouter", LLMError("hết tiền", 402)), _Stub("claude")
+    chain = FallbackLLMProvider(openrouter, claude)
+    assert chain.answer("q", []) == "claude"
+    openrouter.error = None  # đã nạp tiền
+    assert chain.answer("q", []) == "claude"  # còn trong thời gian nghỉ
+    chain._skip_primary_until = 0  # hết thời gian nghỉ
+    assert chain.answer("q", []) == "openrouter" and chain.answer("q", []) == "openrouter"
+
+
+def test_auxiliary_calls_also_fail_over_instead_of_silently_returning_nothing():
+    from app.services.llm import FallbackLLMProvider, LLMError
+
+    openrouter, claude = _Stub("openrouter", LLMError("hết tiền", 402)), _Stub("claude")
+    chain = FallbackLLMProvider(openrouter, claude)
+    assert chain.complete("viết lại câu hỏi") == "claude"
+    assert chain.answer("q", []) == "claude" and openrouter.calls == 1
+    # cả hai lỗi: việc phụ trả rỗng (không ném), câu trả lời chính ném lỗi gốc của OpenRouter
+    both = FallbackLLMProvider(_Stub("a", LLMError("hết tiền", 402)), _Stub("b", LLMError("tắt")))
+    assert both.complete("p") == ""
+    import pytest
+    with pytest.raises(LLMError) as caught:
+        both.answer("q", [])
+    assert caught.value.status == 402
+
+
+def test_failover_works_through_the_whole_three_step_chain():
+    from app.services.llm import FallbackLLMProvider, LLMError
+
+    a, b, c = _Stub("openrouter", LLMError("hết tiền", 402)), _Stub("sonnet-5-5", LLMError("503", 503)), _Stub("sonnet-5")
+    chain = FallbackLLMProvider(a, FallbackLLMProvider(b, c))
+    assert chain.answer("q", []) == "sonnet-5" and (a.calls, b.calls, c.calls) == (1, 1, 1)
+    assert chain.answer("q", []) == "sonnet-5" and (a.calls, b.calls, c.calls) == (1, 1, 2)  # cả hai đầu đang nghỉ

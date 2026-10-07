@@ -53,6 +53,10 @@ class LLMProvider(ABC):
         """Gọi ngắn, không guardrail — dùng cho việc phụ như viết lại câu hỏi nối tiếp. Rỗng = không hỗ trợ."""
         return ""
 
+    def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
+        """Như `complete` nhưng lỗi được ném ra (không nuốt thành chuỗi rỗng) để lớp dự phòng biết mà chuyển phương án."""
+        return self.complete(prompt, max_tokens)
+
 
 class MockLLMProvider(LLMProvider):
     """Provider gia lap (khong goi LLM that) - dung khi EMBEDDING_PROVIDER/LLM_PROVIDER
@@ -195,9 +199,12 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         text = self._chat([{"role": "user", "content": build_prompt(question, contexts, history)}], 2000, 0.3, 90)
         return text or FALLBACK_ANSWER
 
+    def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
+        return self._chat([{"role": "user", "content": prompt}], max_tokens, 0.0, 25)
+
     def complete(self, prompt: str, max_tokens: int = 200) -> str:
         try:
-            return self._chat([{"role": "user", "content": prompt}], max_tokens, 0.0, 25)
+            return self.complete_strict(prompt, max_tokens)
         except Exception:
             return ""  # việc phụ (viết lại câu hỏi): lỗi thì lớp trên dùng cách nối chuỗi đơn giản
 
@@ -217,39 +224,73 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 OpenRouterLLMProvider = OpenAICompatibleLLMProvider  # tên cũ, giữ để mã/test khác không phải đổi
 
 
-class FallbackLLMProvider(LLMProvider):
-    """Gọi phương án chính; lỗi thì chuyển sang phương án dự phòng. Sau một lần chính lỗi, bỏ qua nó `cooldown`
-    giây để lúc máy chạy endpoint tắt, mỗi câu hỏi không phải chờ hết thời gian chờ của phương án chính."""
+PERSISTENT_STATUSES = (401, 402, 403, 404)
+"""Khoá sai/bị khoá, hết tiền, sai tên model: không tự hết sau vài giây nên nghỉ lâu."""
 
-    def __init__(self, primary: LLMProvider, secondary: LLMProvider, cooldown: float = 60.0):
+
+class FallbackLLMProvider(LLMProvider):
+    """Gọi phương án chính; lỗi thì chuyển sang phương án dự phòng NGAY trong cùng câu hỏi (người dùng không thấy lỗi).
+
+    Sau khi phương án chính lỗi, bỏ qua nó một thời gian để mỗi câu hỏi không phải chờ/trả phí cho một dịch vụ đang hỏng:
+    - hết tiền, khoá sai (401/402/403/404): nghỉ `persistent_cooldown` (mặc định 10 phút);
+    - tạm thời (máy tắt, 5xx, 429, hết thời gian chờ): nghỉ `cooldown` (mặc định 60 giây);
+    - lỗi riêng của một yêu cầu (400/413/422...): không nghỉ, vì dịch vụ vẫn khoẻ.
+    Hết thời gian nghỉ thì thử lại phương án chính — nạp tiền xong là tự quay lại, không cần khởi động lại app."""
+
+    def __init__(self, primary: LLMProvider, secondary: LLMProvider, cooldown: float = 60.0, persistent_cooldown: float = 600.0):
         self.primary = primary
         self.secondary = secondary
         self.cooldown = cooldown
+        self.persistent_cooldown = persistent_cooldown
         self._skip_primary_until = 0.0
         self._primary_error: Exception | None = None
 
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
-        if time.monotonic() >= self._skip_primary_until:
+    def _primary_skipped(self) -> bool:
+        return time.monotonic() < self._skip_primary_until
+
+    def _cooldown_for(self, error: Exception) -> float:
+        status = getattr(error, "status", None)
+        if status in PERSISTENT_STATUSES:
+            return self.persistent_cooldown
+        if status is not None and 400 <= status < 500 and status != 429:
+            return 0.0
+        return self.cooldown
+
+    def _primary_failed(self, error: Exception) -> None:
+        pause = self._cooldown_for(error)
+        logger.warning("LLM chính lỗi (%s), chuyển sang phương án dự phòng%s", getattr(error, "status", None) or type(error).__name__,
+                       f" trong {pause:.0f}s" if pause else "", exc_info=error if not isinstance(error, LLMError) else None)
+        self._skip_primary_until = time.monotonic() + pause if pause else 0.0
+        self._primary_error = error
+
+    def _call(self, method: str, *args):
+        if not self._primary_skipped():
             try:
-                return self.primary.answer(question, contexts, history)
+                return getattr(self.primary, method)(*args)
             except Exception as error:
-                logger.warning("LLM chính lỗi, chuyển sang phương án dự phòng trong %.0fs", self.cooldown, exc_info=True)
-                self._skip_primary_until = time.monotonic() + self.cooldown
-                self._primary_error = error
+                self._primary_failed(error)
         try:
-            return self.secondary.answer(question, contexts, history)
+            return getattr(self.secondary, method)(*args)
         except Exception:
             # Cả hai đều lỗi: báo lỗi của phương án CHÍNH (nguyên nhân gốc), không phải lỗi của phương án dự phòng
             if self._primary_error is not None:
                 raise self._primary_error
             raise
 
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
+        return self._call("answer", question, contexts, history)
+
+    def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
+        return self._call("complete_strict", prompt, max_tokens)
+
     def complete(self, prompt: str, max_tokens: int = 200) -> str:
-        provider = self.secondary if time.monotonic() < self._skip_primary_until else self.primary
-        return provider.complete(prompt, max_tokens)
+        try:
+            return self.complete_strict(prompt, max_tokens)
+        except Exception:
+            return ""
 
     def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
-        provider = self.secondary if time.monotonic() < self._skip_primary_until else self.primary
+        provider = self.secondary if self._primary_skipped() else self.primary
         return provider.describe_image(image_bytes, mime_type)
 
 

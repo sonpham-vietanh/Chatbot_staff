@@ -88,29 +88,42 @@ class AdvancedRAGPipeline:
 
     @staticmethod
     def _build_llm(settings: Settings):
+        """Dựng chuỗi LLM tự chuyển phương án khi cái trước lỗi (hết tiền, máy tắt...).
+
+        - LLM_PROVIDER=openrouter: OpenRouter trước; hết thì sang endpoint Claude (nếu có LLM_BASE_URL + LLM_API_KEY):
+          model chính LLM_MODEL rồi model dự phòng LLM_FALLBACK_MODEL.
+        - LLM_PROVIDER=openai_compatible: endpoint Claude trước, OpenRouter (nếu có key) là dự phòng.
+        Thiếu cấu hình phương án nào thì bỏ phương án đó; không còn phương án nào thì báo lỗi cấu hình rõ ràng."""
         provider = settings.llm_provider
-        if provider == "openai_compatible" and not (settings.llm_api_key and settings.llm_base_url):
+        if provider not in ("openrouter", "openai_compatible"):
+            return build_llm_provider(provider, settings.gemini_api_key, settings.gemini_model, "https://generativelanguage.googleapis.com")
+        has_claude = bool(settings.llm_api_key and settings.llm_base_url)
+        if provider == "openai_compatible" and not has_claude:
             # Thiếu cấu hình thì không để app chết lúc khởi động: dùng OpenRouter và kêu to trong log.
             logger.error("LLM_PROVIDER=openai_compatible nhưng thiếu LLM_API_KEY/LLM_BASE_URL — tạm dùng OpenRouter")
             provider = "openrouter"
-        if provider == "openai_compatible":
+
+        def openrouter() -> list:
+            if not settings.openrouter_api_key:
+                return []
+            return [build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)]
+
+        def claude() -> list:
+            if not has_claude:
+                return []
             slots = settings.llm_max_concurrency
-            primary = build_llm_provider(provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url, slots)
-            # Chuỗi dự phòng: model chính -> model dự phòng cùng endpoint -> OpenRouter (nếu có key)
-            chain = []
+            models = [settings.llm_model]
             if settings.llm_fallback_model and settings.llm_fallback_model != settings.llm_model:
-                chain.append(build_llm_provider(provider, settings.llm_api_key, settings.llm_fallback_model, settings.llm_base_url, slots))
-            if settings.openrouter_api_key:  # endpoint tự dựng chạy trên máy cá nhân có thể tắt: có đường dự phòng
-                chain.append(build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url))
-            if not chain:
-                return primary
-            tail = chain[-1]
-            for backup in reversed(chain[:-1]):
-                tail = FallbackLLMProvider(backup, tail)
-            return FallbackLLMProvider(primary, tail)
-        if provider == "openrouter":
-            return build_llm_provider(provider, settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
-        return build_llm_provider(provider, settings.gemini_api_key, settings.gemini_model, "https://generativelanguage.googleapis.com")
+                models.append(settings.llm_fallback_model)
+            return [build_llm_provider("openai_compatible", settings.llm_api_key, model, settings.llm_base_url, slots) for model in models]
+
+        chain = openrouter() + claude() if provider == "openrouter" else claude() + openrouter()
+        if not chain:  # không còn phương án nào: để build_llm_provider báo thiếu khoá đúng tên biến
+            return build_llm_provider("openrouter", settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_base_url)
+        llm = chain[-1]
+        for backup in reversed(chain[:-1]):
+            llm = FallbackLLMProvider(backup, llm)
+        return llm
 
     def retrieve(self, question: str, history: list[dict] | None = None) -> list[dict[str, Any]]:
         """Tim kiem KHONG loc theo phong ban - moi nhan vien deu co quyen biet toan bo
