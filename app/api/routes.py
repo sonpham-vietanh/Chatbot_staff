@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 import logging
+import re
 import secrets
 from typing import Any, Literal
 import uuid
@@ -22,7 +23,11 @@ from app.models.schemas import (
     LeaderUpsertRequest,
     ManageNoteCreateRequest,
     ManageNoteUpdateRequest,
+    ProfileUpdateRequest,
     ReportKeyCreateRequest,
+    WigCreateRequest,
+    WigProgressRequest,
+    WigUpdateRequest,
     LoginRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
@@ -44,6 +49,7 @@ from app.services.usage_service import FEATURES, ReportQueryError, UsageService,
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.llm import LLMError
+from app.services.wig_service import WigError
 from app.services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
@@ -366,6 +372,24 @@ def _track(background_tasks: BackgroundTasks, rag: Any, feature: str, user: dict
         background_tasks.add_task(usage.log, feature, user, meta)
 
 
+WIG_WORD = re.compile(r"\bwigs?\b", re.IGNORECASE)
+OTHER_PERSON_WIG = re.compile(r"\bwigs?\s+(?:của|cua)\s+(?!tôi|toi|mình|minh|em\b|tui)", re.IGNORECASE)
+WIG_CONCEPT = re.compile(r"\b(là gì|nghĩa là|la gi|định nghĩa|dinh nghia)\b", re.IGNORECASE)
+
+
+def _own_wig_answer(rag: Any, user: dict, question: str) -> dict | None:
+    """"WIG của tôi tới đâu rồi?": trả lời thẳng từ cơ sở dữ liệu WIG của CHÍNH người hỏi (không qua mô hình, không lộ WIG người khác).
+    Câu hỏi nhắc WIG của người khác, hoặc hỏi khái niệm WIG, vẫn đi đường hỏi đáp thường."""
+    wigs = getattr(rag, "wigs", None)
+    if wigs is None or not WIG_WORD.search(question) or OTHER_PERSON_WIG.search(question) or WIG_CONCEPT.search(question):
+        return None
+    try:
+        return {"answer": wigs.chat_summary(user.get("email") or "", user.get("display_name")), "grounded": True, "citations": []}
+    except Exception:  # noqa: BLE001 — chưa chạy migration hoặc DB lỗi: để đường hỏi đáp thường trả lời
+        logger.warning("Không đọc được WIG cho chatbot", exc_info=True)
+        return None
+
+
 @router.post("/chat-staff", response_model=ChatResponse)
 def chat_staff(
     request: ChatRequest,
@@ -377,8 +401,9 @@ def chat_staff(
     is_new_thread = not request.thread_id
     thread_id = request.thread_id or str(uuid.uuid4())
     department, _role = _viewer_department_role(user)
+    own_wigs = _own_wig_answer(rag, user, request.question)
     try:
-        result = rag.chat(
+        result = own_wigs or rag.chat(
             request.question,
             [turn.model_dump() for turn in request.history],
             asker_department=department,
@@ -446,7 +471,89 @@ def report_wrong_answer(
         logger.warning("Không lưu được báo cáo sai", exc_info=True)
         raise HTTPException(status_code=503, detail="Chưa gửi được báo cáo, vui lòng thử lại sau.") from error
     _track(background_tasks, rag, "bao_sai", user, {"ly_do": payload.get("reason")})
+    points = getattr(rag, "points", None)
+    if points is not None:
+        background_tasks.add_task(points.award, user.get("email"), "bao_sai_gui", "feedback", str(record.get("id", "")))
     return {"status": "received", "id": str(record.get("id", ""))}
+
+
+# ---------------------------------------------------------------------------
+# Hồ sơ, WIG và điểm đóng góp của chính người đăng nhập
+# ---------------------------------------------------------------------------
+def get_profile_service(rag: RAGService = Depends(get_rag_service)):
+    return rag.profiles
+
+
+def get_wig_service(rag: RAGService = Depends(get_rag_service)):
+    return rag.wigs
+
+
+def get_points_service(rag: RAGService = Depends(get_rag_service)):
+    return rag.points
+
+
+def _wig_call(action, *args, **kwargs):
+    try:
+        return action(*args, **kwargs)
+    except WigError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.warning("Lỗi hồ sơ/WIG", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Chưa dùng được hồ sơ và WIG — kiểm tra đã chạy migration 20261007000000_profiles_wigs_points.sql trên Supabase chưa.",
+        ) from error
+
+
+@router.get("/me/profile")
+def my_profile(user: dict = Depends(require_user), profiles=Depends(get_profile_service), points=Depends(get_points_service)) -> dict:
+    email = user.get("email") or ""
+    profile = _wig_call(profiles.get, email)
+    if not profile.get("display_name"):
+        metadata = user.get("user_metadata") or {}
+        profile["display_name"] = metadata.get("display_name") or metadata.get("full_name") or metadata.get("name")
+    profile["points"] = _wig_call(points.summary, email)
+    return profile
+
+
+@router.put("/me/profile")
+def update_my_profile(body: ProfileUpdateRequest, user: dict = Depends(require_user), profiles=Depends(get_profile_service)) -> dict[str, str]:
+    _wig_call(profiles.update_self, user.get("email") or "", body.phone, body.bio)
+    return {"status": "saved"}
+
+
+@router.get("/me/wigs")
+def my_wigs(include_closed: bool = Query(False), user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    return {"items": _wig_call(wigs.list_for, user.get("email") or "", include_closed)}
+
+
+@router.post("/me/wigs")
+def create_my_wig(body: WigCreateRequest, user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    return _wig_call(wigs.create, user.get("email") or "", body.model_dump(mode="json"))
+
+
+@router.put("/me/wigs/{wig_id}")
+def update_my_wig(wig_id: uuid.UUID, body: WigUpdateRequest, user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    return _wig_call(wigs.update, user.get("email") or "", str(wig_id), body.model_dump(mode="json", exclude_unset=True))
+
+
+@router.post("/me/wigs/{wig_id}/progress")
+def add_wig_progress(wig_id: uuid.UUID, body: WigProgressRequest, user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    return _wig_call(wigs.add_progress, user.get("email") or "", str(wig_id), body.value, body.note)
+
+
+@router.get("/wigs/{wig_id}/updates")
+def wig_history(wig_id: uuid.UUID, user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    """Lịch sử cập nhật: chính chủ, quản lý trực tiếp và admin."""
+    return {"items": _wig_call(wigs.updates, user.get("email") or "", str(wig_id))}
+
+
+@router.get("/team/wigs")
+def team_wigs(user: dict = Depends(require_user), wigs=Depends(get_wig_service)) -> dict:
+    """WIG đang chạy của những người báo cáo trực tiếp cho người đăng nhập (theo bảng HR)."""
+    return {"items": _wig_call(wigs.team, user.get("email") or "")}
 
 
 def _manage_call(action, *args, **kwargs):
@@ -590,11 +697,15 @@ def admin_set_feedback_status(
     feedback_id: uuid.UUID,
     body: FeedbackStatusRequest,
     feedback: FeedbackService = Depends(get_feedback_service),
+    rag: RAGService = Depends(get_rag_service),
 ) -> dict[str, str]:
     try:
-        feedback.set_status(str(feedback_id), body.status)
+        row = feedback.set_status(str(feedback_id), body.status)
     except FeedbackNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    points = getattr(rag, "points", None)
+    if body.status == "resolved" and points is not None:  # báo sai được xác nhận và đã sửa: cộng điểm cho người báo (mỗi báo cáo một lần)
+        points.award((row or {}).get("user_email"), "bao_sai_xac_nhan", "feedback", str(feedback_id))
     return {"status": body.status}
 
 

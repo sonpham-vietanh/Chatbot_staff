@@ -132,6 +132,12 @@ def sso_from_major_os(token: str = "") -> RedirectResponse:
     return response
 
 
+@app.get("/ho-so", include_in_schema=False)
+def profile_ui() -> FileResponse:
+    """Trang Hồ sơ & WIG — cùng ứng dụng React; dữ liệu đi qua /api/me/* nên quyền được kiểm tra ở API."""
+    return manage_ui()
+
+
 @app.get("/quan-ly", include_in_schema=False)
 def manage_ui() -> FileResponse:
     """Trang quản lý tri thức cho leader — cùng ứng dụng React với trang chat (App.jsx chọn màn hình

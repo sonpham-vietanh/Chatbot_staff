@@ -21,6 +21,9 @@ from app.services.ingest_agent import IngestAgent
 from app.services.llm import FallbackLLMProvider, build_llm_provider
 from app.services.supabase_client import SupabaseClient
 from app.services.report_service import ReportKeyService, ReportService
+from app.services.points_service import PointsService
+from app.services.profile_service import ProfileService
+from app.services.wig_service import WigService
 from app.services.usage_service import UsageService
 from app.services.wiki_sync_service import WikiSyncService
 
@@ -83,6 +86,9 @@ class AdvancedRAGPipeline:
         self.usage = UsageService(self.supabase)
         self.report = ReportService(self.supabase)
         self.report_keys = ReportKeyService(self.supabase)
+        self.profiles = ProfileService(self.supabase)
+        self.wigs = WigService(self.supabase, settings.admin_emails)
+        self.points = PointsService(self.supabase)
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
         self.wiki_sync = WikiSyncService(self.admin, settings.vault_path, recorder=lambda note, kind: self.manage._record(note, kind, "wiki-sync")) if settings.vault_path else None
 

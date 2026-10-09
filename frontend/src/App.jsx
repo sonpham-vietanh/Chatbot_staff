@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import Manage from './Manage.jsx'
+import Profile from './Profile.jsx'
 
 // Logo chính thức (header website truongvietanh.com), phục vụ từ /brand của backend.
 // Chỉ đặt trên nền trắng/kem; trên nền navy dùng wordmark chữ "TRƯỜNG VIỆT ANH".
@@ -61,7 +62,6 @@ function App() {
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
-  const [canManage, setCanManage] = useState(false)
   const scrollAnchorRef = useRef(null)
   const tokenRef = useRef(token)
   const refreshingRef = useRef(null)
@@ -126,7 +126,6 @@ function App() {
         if (!response.ok) throw new Error()
         setUser(await response.json())
         loadThreads()
-        authFetch('/api/manage/me').then((r) => (r.ok ? r.json() : null)).then((p) => setCanManage(Boolean(p?.can_manage))).catch(() => {})
       } catch {
         clearSession()
       } finally {
@@ -417,6 +416,9 @@ function App() {
   if (window.location.pathname.replace(/\/$/, '') === '/quan-ly') {
     return <Manage authFetch={authFetch} user={user} />
   }
+  if (window.location.pathname.replace(/\/$/, '') === '/ho-so') {
+    return <Profile authFetch={authFetch} user={user} />
+  }
 
   return (
     <div className="relative flex h-full w-full overflow-hidden">
@@ -445,7 +447,7 @@ function App() {
           ))}
         </div>
 
-        {canManage && <a href="/quan-ly" className="btn-dark mt-4 grid place-items-center font-semibold no-underline hover:no-underline">Quản lý tri thức</a>}
+        <a href="/ho-so" className="btn-dark mt-4 grid place-items-center font-semibold no-underline hover:no-underline">Hồ sơ &amp; WIG</a>
         <div className="mt-4 flex items-center gap-3 border-t border-white/[.12] px-2 pt-4">
           <div className="grid h-10 w-10 shrink-0 place-items-center bg-[linear-gradient(180deg,#F9DD0E_0%,#E0B90C_100%)] text-[17px] font-extrabold text-navy">
             {(displayName || user.email || '?').trim().split(/\s+/).pop().slice(0, 1).toUpperCase()}

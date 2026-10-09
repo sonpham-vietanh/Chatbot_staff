@@ -39,10 +39,11 @@ class FeedbackService:
     def count_open(self) -> int:
         return len(self.client.select("answer_feedback", {"select": "id", "status": "eq.open"}))
 
-    def set_status(self, feedback_id: str, status: str) -> None:
+    def set_status(self, feedback_id: str, status: str) -> dict[str, Any]:
         handled_at = None if status == "open" else datetime.now(timezone.utc).isoformat()
         rows = self.client.update(
             "answer_feedback", {"id": f"eq.{feedback_id}"}, {"status": status, "handled_at": handled_at}
         )
         if not rows:
             raise FeedbackNotFoundError(f"Không tìm thấy báo cáo: {feedback_id}")
+        return rows[0]

@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from typing import Annotated, Any, Literal
 
@@ -119,6 +120,40 @@ class FeedbackCreateRequest(BaseModel):
 
 class FeedbackStatusRequest(BaseModel):
     status: Literal["open", "resolved", "dismissed"]
+
+
+class ProfileUpdateRequest(BaseModel):
+    phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
+    bio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+
+class WigCreateRequest(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    period_label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+    metric_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    unit: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
+    description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None = None
+    start_value: float = 0
+    target_value: float
+    current_value: float | None = None
+    due_date: datetime.date | None = None
+
+
+class WigUpdateRequest(BaseModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None
+    period_label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)] | None = None
+    metric_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)] | None = None
+    unit: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
+    description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None = None
+    start_value: float | None = None
+    target_value: float | None = None
+    due_date: datetime.date | None = None
+    status: Literal["active", "done", "dropped"] | None = None
+
+
+class WigProgressRequest(BaseModel):
+    value: float
+    note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)] | None = None
 
 
 Department = Literal["HR", "Finance", "Academic", "Admin", "Unassigned"]
