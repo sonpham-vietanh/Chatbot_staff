@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
-import Manage from './Manage.jsx'
-import Profile from './Profile.jsx'
+// Hai trang này chỉ tải khi người dùng vào đó, để màn hình chat/đăng nhập tải nhanh hơn
+const Manage = lazy(() => import('./Manage.jsx'))
+const Profile = lazy(() => import('./Profile.jsx'))
+const PageLoading = <div className="grid h-full place-items-center bg-cream text-base text-muted">Đang tải...</div>
 
 // Logo chính thức (header website truongvietanh.com), phục vụ từ /brand của backend.
 // Chỉ đặt trên nền trắng/kem; trên nền navy dùng wordmark chữ "TRƯỜNG VIỆT ANH".
@@ -414,10 +416,10 @@ function App() {
   }
 
   if (window.location.pathname.replace(/\/$/, '') === '/quan-ly') {
-    return <Manage authFetch={authFetch} user={user} />
+    return <Suspense fallback={PageLoading}><Manage authFetch={authFetch} user={user} /></Suspense>
   }
   if (window.location.pathname.replace(/\/$/, '') === '/ho-so') {
-    return <Profile authFetch={authFetch} user={user} />
+    return <Suspense fallback={PageLoading}><Profile authFetch={authFetch} user={user} /></Suspense>
   }
 
   return (

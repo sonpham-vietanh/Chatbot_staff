@@ -161,3 +161,66 @@ def test_reindex_script_refuses_to_run_in_lexical_mode(monkeypatch, capsys):
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "get_settings", lambda: SimpleNamespace(retrieval_mode="lexical"))
     assert module.main() == 2 and "lexical" in capsys.readouterr().out
+
+
+# ---------- tối ưu tốc độ ----------
+def test_trivial_questions_never_trigger_the_keyword_expansion_call():
+    llm = StubLLM()
+    rag = make_pipeline(FakeClient(*corpus()), llm)
+    for question in ("hôm nay là ngày bao nhiêu", "hom nay la thu may", "bây giờ là mấy giờ", "xin chào", "cảm ơn bạn nhé", "Hôm nay là ngày mấy vậy?"):
+        rag.retrieve(question, None)
+    assert llm.calls == []                      # không tốn lời gọi mô hình nào cho các câu này
+    rag.retrieve("ngày nghỉ hằng năm", None)    # câu hỏi về tài liệu mà từ khoá yếu: vẫn mở rộng như cũ
+    assert len(llm.calls) == 1
+    rag.retrieve("hôm nay tôi đi làm muộn thì bị trừ gì", None)   # nhắc "hôm nay" nhưng là hỏi chính sách: vẫn được mở rộng
+    assert len(llm.calls) == 2
+    from app.rag.lexical_store import fold
+    from app.rag.pipeline import NO_DOCUMENT_QUESTION
+
+    for mixed in ("chào, nghỉ phép mấy ngày", "bây giờ mấy giờ vào làm", "hôm nay là ngày nghỉ lễ gì", "cảm ơn, còn quy định thưởng tết thì sao"):
+        assert not NO_DOCUMENT_QUESTION.match(fold(mixed)), mixed   # có thêm nội dung chính sách: luật không được khớp
+
+
+def test_warm_loads_the_index_once_and_never_raises():
+    client = FakeClient(*corpus())
+    store = LexicalStore(client)
+    assert store.warm() == 5 - 1 and client.calls > 0        # 4 đoạn thuộc tài liệu đã duyệt (bỏ bản nháp)
+    loads = client.calls
+    store.search("nghỉ phép", 3)
+    assert client.calls == loads                              # lần tìm đầu tiên không phải nạp lại
+    broken = FakeClient(*corpus())
+    broken.fail = True
+    assert LexicalStore(broken).warm() == 0                   # DB lỗi lúc khởi động: im lặng, lần tìm đầu sẽ thử lại
+
+
+def test_health_result_is_cached_for_a_short_time_but_errors_are_not(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from app.api import routes
+    from app.api.routes import get_rag_service
+    from app.main import app
+
+    calls = {"n": 0, "fail": False}
+
+    def select(table, params):
+        calls["n"] += 1
+        if calls["fail"]:
+            raise RuntimeError("db down")
+        return [{"status": "approved"}, {"status": "draft"}]
+
+    app.dependency_overrides[get_rag_service] = lambda: SimpleNamespace(supabase=SimpleNamespace(select=select))
+    routes._HEALTH_CACHE.update(value=None, at=0.0)
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        first = client.get("/api/health").json()
+        assert first["knowledge_notes"] == 2 and first["approved_notes"] == 1
+        client.get("/api/health")
+        assert calls["n"] == 1                                # lần 2 lấy từ bộ nhớ
+        monkeypatch.setattr(routes, "HEALTH_CACHE_SECONDS", 0.0)
+        calls["fail"] = True
+        assert client.get("/api/health").status_code == 500   # hết hạn lưu + DB lỗi: healthcheck vẫn phải báo hỏng, không trả bản cũ
+    finally:
+        app.dependency_overrides.clear()
+        routes._HEALTH_CACHE.update(value=None, at=0.0)

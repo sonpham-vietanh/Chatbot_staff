@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, History, Plus, RotateCcw, Trash2 } from 'lucide-react'
 
 const STATUS_LABELS = { active: 'Đang chạy', done: 'Hoàn thành', dropped: 'Đã bỏ' }
+const OWN_KEYS = ['phone', 'zalo', 'birth_date', 'gender', 'address', 'education', 'expertise', 'bio', 'emergency_name', 'emergency_relation', 'emergency_phone']
+const toOwn = (data) => Object.fromEntries(OWN_KEYS.map((key) => [key, data?.[key] || '']))
 
 async function call(authFetch, path, options = {}) {
   const response = await authFetch(`/api${path}`, {
@@ -17,6 +19,20 @@ async function call(authFetch, path, options = {}) {
   }
   return data
 }
+
+const REQ_STATUS = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Từ chối', cancelled: 'Đã huỷ' }
+const DEFAULT_REQUESTABLE = [
+  { field: 'display_name', label: 'Họ tên', max_length: 100, type: 'text' },
+  { field: 'job_title', label: 'Chức danh', max_length: 100, type: 'text' },
+  { field: 'department', label: 'Phòng ban', max_length: 100, type: 'text' },
+  { field: 'campus', label: 'Cơ sở', max_length: 100, type: 'text' },
+  { field: 'work_phone', label: 'Điện thoại công việc', max_length: 30, type: 'text' },
+  { field: 'employment_start_date', label: 'Ngày vào công ty', max_length: 10, type: 'date' },
+  { field: 'team_name', label: 'Tổ chuyên môn', max_length: 100, type: 'text' },
+  { field: 'extra_roles', label: 'Kiêm nhiệm', max_length: 200, type: 'text' },
+  { field: 'subjects', label: 'Môn dạy', max_length: 200, type: 'text' },
+  { field: 'grade_levels', label: 'Khối lớp phụ trách', max_length: 100, type: 'text' },
+]
 
 const currentQuarter = () => {
   const now = new Date()
@@ -130,6 +146,76 @@ function WigCard({ wig, onChanged, notify, authFetch, readOnly = false }) {
   )
 }
 
+function FactRow({ label, display, spec, rawValue, pending, canRequest, onSubmit }) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await onSubmit({ field: spec.field, new_value: value.trim(), reason: reason.trim() || null })
+      setOpen(false)
+      setValue('')
+      setReason('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{display}</dd>
+      {spec && canRequest && pending && <p className="pf-req-wait">Đang chờ HR duyệt</p>}
+      {spec && canRequest && !pending && !open && (
+        <button type="button" className="pf-link pf-req-btn" onClick={() => { setValue(spec.type === 'date' ? (rawValue || '') : ''); setError(''); setOpen(true) }}>Yêu cầu sửa</button>
+      )}
+      {spec && canRequest && !pending && open && (
+        <form className="pf-req-form" onSubmit={submit}>
+          <label className="pf-field">Giá trị mới
+            <input type={spec.type === 'date' ? 'date' : 'text'} required maxLength={spec.type === 'date' ? undefined : spec.max_length} value={value} onChange={(event) => setValue(event.target.value)} />
+          </label>
+          <label className="pf-field">Lý do (tuỳ chọn)
+            <input maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} />
+          </label>
+          {error && <p className="pf-req-error" role="alert">{error}</p>}
+          <div className="pf-actions">
+            <button className="btn pf-btn dark" disabled={busy}>Gửi</button>
+            <button type="button" className="btn-link" onClick={() => setOpen(false)}>Huỷ</button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
+function RequestList({ requests, labelOf, onCancel, busy }) {
+  const shown = (v) => (v == null || v === '' ? '(trống)' : /^\d{4}-\d{2}-\d{2}$/.test(v) ? formatDate(v) : v)
+  return (
+    <section className="pf-card">
+      <h2>Yêu cầu chỉnh sửa của tôi</h2>
+      <ul className="pf-history">
+        {requests.map((item) => (
+          <li key={item.id} className="pf-req-item">
+            <div><strong>{item.label || labelOf(item.field)}</strong> <span className={`pf-tag pf-st-${item.status}`}>{REQ_STATUS[item.status] || item.status}</span></div>
+            <div>{shown(item.old_value)} → <strong>{shown(item.new_value)}</strong></div>
+            <div className="pf-muted">Gửi ngày {formatDate(item.created_at)}{item.reason ? ` · Lý do: ${item.reason}` : ''}</div>
+            {item.status === 'rejected' && item.review_note && <div className="pf-muted">Ghi chú của HR: {item.review_note}</div>}
+            {item.status === 'pending' && <button type="button" className="pf-link danger" disabled={busy} onClick={() => onCancel(item.id)}>Huỷ yêu cầu</button>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 export default function Profile({ authFetch: authFetchProp }) {
   const fetchRef = useRef(authFetchProp)
   fetchRef.current = authFetchProp
@@ -141,7 +227,7 @@ export default function Profile({ authFetch: authFetchProp }) {
   const [showClosed, setShowClosed] = useState(false)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [own, setOwn] = useState({ phone: '', bio: '' })
+  const [own, setOwn] = useState(() => toOwn(null))
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [toast, setToast] = useState(null)
@@ -160,7 +246,7 @@ export default function Profile({ authFetch: authFetchProp }) {
 
   useEffect(() => {
     call(authFetch, '/me/profile')
-      .then((data) => { setProfile(data); setOwn({ phone: data.phone || '', bio: data.bio || '' }); setLoadError('') })
+      .then((data) => { setProfile(data); setOwn(toOwn(data)); setLoadError('') })
       .catch((error) => setLoadError(error.message))
   }, [authFetch])
   useEffect(() => { loadWigs().catch((error) => setLoadError(error.message)) }, [loadWigs])
@@ -168,6 +254,7 @@ export default function Profile({ authFetch: authFetchProp }) {
     if (profile?.has_team) call(authFetch, '/team/wigs').then((data) => setTeam(data.items)).catch(() => {})
   }, [authFetch, profile?.has_team])
 
+  const reloadProfile = useCallback(() => call(authFetch, '/me/profile').then(setProfile).catch(() => {}), [authFetch])
   const refreshAll = useCallback(async () => {
     await loadWigs()
     call(authFetch, '/me/profile').then(setProfile).catch(() => {})
@@ -177,12 +264,40 @@ export default function Profile({ authFetch: authFetchProp }) {
     event.preventDefault()
     setBusy(true)
     try {
-      await call(authFetch, '/me/profile', { method: 'PUT', body: JSON.stringify({ phone: own.phone, bio: own.bio }) })
+      await call(authFetch, '/me/profile', { method: 'PUT', body: JSON.stringify({ ...own, birth_date: own.birth_date || null }) })
       notify('Đã lưu thông tin của bạn.')
     } catch (error) {
       notify(error.message, true)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function sendRequest(body) {
+    await call(authFetch, '/me/change-requests', { method: 'POST', body: JSON.stringify(body) })
+    notify('Đã gửi yêu cầu, HR sẽ xem xét.')
+    await reloadProfile()
+  }
+
+  async function cancelRequest(id) {
+    setBusy(true)
+    try {
+      await call(authFetch, `/me/change-requests/${id}/cancel`, { method: 'POST' })
+      notify('Đã huỷ yêu cầu.')
+      await reloadProfile()
+    } catch (error) {
+      notify(error.message, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function acceptConsent() {
+    try {
+      const data = await call(authFetch, '/me/profile/consent', { method: 'POST' })
+      setProfile((current) => ({ ...current, consent_at: data.consent_at || new Date().toISOString() }))
+    } catch (error) {
+      notify(error.message, true)
     }
   }
 
@@ -207,6 +322,7 @@ export default function Profile({ authFetch: authFetchProp }) {
     }
   }
 
+  const setOwnField = (key) => (event) => setOwn((current) => ({ ...current, [key]: event.target.value }))
   const field = (key) => ({ value: form[key], onChange: (event) => setForm((current) => ({ ...current, [key]: event.target.value })) })
   const open = wigs.filter((wig) => wig.status === 'active')
   const closed = wigs.filter((wig) => wig.status !== 'active')
@@ -219,6 +335,19 @@ export default function Profile({ authFetch: authFetchProp }) {
         <h1>Hồ sơ &amp; WIG</h1>
       </header>
       {loadError && <p className="pf-error" role="alert">{loadError}</p>}
+      {profile && !profile.consent_at && (
+        <section className="pf-consent" aria-label="Thông báo mục đích sử dụng dữ liệu">
+          <h2>Về dữ liệu hồ sơ của bạn</h2>
+          <ul>
+            <li>Dữ liệu hồ sơ dùng để làm danh bạ nội bộ và theo dõi WIG.</li>
+            <li>Ngày sinh, địa chỉ, liên hệ khẩn cấp chỉ bạn và HR xem được.</li>
+            <li>Thông tin liên hệ khẩn cấp là của người thân, nên bạn cần đã được họ đồng ý trước khi nhập.</li>
+            <li>Bạn có thể để trống mọi trường tuỳ chọn, sửa hoặc xoá bất cứ lúc nào.</li>
+            <li>HR chỉ sửa thông tin công việc và sẽ ghi lại lịch sử thay đổi.</li>
+          </ul>
+          <button type="button" className="btn pf-btn dark" onClick={acceptConsent}>Tôi đã hiểu</button>
+        </section>
+      )}
       {profile && (
         <main className="pf-body">
           <aside className="pf-side">
@@ -232,22 +361,35 @@ export default function Profile({ authFetch: authFetchProp }) {
               </div>
               {!profile.in_directory && <p className="pf-notice">Bạn chưa có trong danh bạ nhân sự nên một số thông tin đang trống. Nhờ HR bổ sung để hiển thị đầy đủ.</p>}
               <dl className="pf-facts">
+                {(() => {
+                  const specs = Object.fromEntries((profile.requestable_fields?.length ? profile.requestable_fields : DEFAULT_REQUESTABLE).map((item) => [item.field, item]))
+                  const pendingFields = new Set((profile.requests || []).filter((item) => item.status === 'pending').map((item) => item.field))
+                  const canRequest = profile.in_directory !== false && !!profile.requestable_fields
+                  const row = (key, label, raw, display) => raw && (
+                    <FactRow key={key} label={label} display={display || raw} rawValue={raw} spec={specs[key]} pending={pendingFields.has(key)} canRequest={canRequest} onSubmit={sendRequest} />
+                  )
+                  return [
+                    row('display_name', 'Họ tên', profile.display_name),
+                    row('job_title', 'Chức danh', profile.job_title),
+                    row('department', 'Phòng ban', profile.department),
+                    row('campus', 'Cơ sở', profile.campus),
+                    row('employment_start_date', 'Vào công ty', profile.employment_start_date, profile.employment_start_date && `${formatDate(profile.employment_start_date)}${profile.tenure ? ` (${profile.tenure})` : ''}`),
+                    row('work_phone', 'Điện thoại công việc', profile.work_phone),
+                    row('team_name', 'Tổ chuyên môn', profile.team_name),
+                    row('extra_roles', 'Kiêm nhiệm', profile.extra_roles),
+                    row('subjects', 'Môn dạy', profile.subjects),
+                    row('grade_levels', 'Khối lớp phụ trách', profile.grade_levels),
+                  ]
+                })()}
                 <div><dt>Email</dt><dd>{profile.email}</dd></div>
-                {profile.campus && <div><dt>Cơ sở</dt><dd>{profile.campus}</dd></div>}
-                {profile.employment_start_date && <div><dt>Vào công ty</dt><dd>{formatDate(profile.employment_start_date)}{profile.tenure ? ` (${profile.tenure})` : ''}</dd></div>}
+                {profile.employee_code && <div><dt>Mã nhân viên</dt><dd>{profile.employee_code}</dd></div>}
+                {profile.level_name && <div><dt>Cấp bậc</dt><dd>{profile.level_name}</dd></div>}
+                {profile.contract_type && <div><dt>Loại hợp đồng</dt><dd>{profile.contract_type}</dd></div>}
+                {(profile.employment_type_label || profile.employment_type) && <div><dt>Hình thức làm việc</dt><dd>{profile.employment_type_label || profile.employment_type}</dd></div>}
                 {profile.manager && <div><dt>Quản lý trực tiếp</dt><dd>{profile.manager.display_name || profile.manager.email}</dd></div>}
-                {profile.work_phone && <div><dt>Điện thoại công việc</dt><dd>{profile.work_phone}</dd></div>}
               </dl>
-              <form className="pf-own" onSubmit={saveOwn}>
-                <label className="pf-field">Số điện thoại của bạn
-                  <input maxLength={30} value={own.phone} onChange={(event) => setOwn({ ...own, phone: event.target.value })} />
-                </label>
-                <label className="pf-field">Giới thiệu ngắn
-                  <textarea maxLength={500} rows={3} value={own.bio} onChange={(event) => setOwn({ ...own, bio: event.target.value })} placeholder="Bạn phụ trách việc gì?" />
-                </label>
-                <button className="btn pf-btn outline" disabled={busy}>Lưu thông tin</button>
-              </form>
             </section>
+            {profile.requests?.length > 0 && <RequestList requests={profile.requests} labelOf={(f) => (profile.requestable_fields || DEFAULT_REQUESTABLE).find((x) => x.field === f)?.label || f} onCancel={cancelRequest} busy={busy} />}
             <section className="pf-card">
               <h2>Điểm đóng góp</h2>
               <p className="pf-points">{profile.points?.total ?? 0}</p>
@@ -263,12 +405,11 @@ export default function Profile({ authFetch: authFetchProp }) {
           </aside>
 
           <section className="pf-main">
-            {profile.has_team && (
-              <div className="pf-tabs" role="tablist">
-                <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>WIG của tôi</button>
-                <button role="tab" aria-selected={tab === 'team'} className={tab === 'team' ? 'active' : ''} onClick={() => setTab('team')}>Nhóm của tôi</button>
-              </div>
-            )}
+            <div className="pf-tabs" role="tablist">
+              <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>WIG của tôi</button>
+              <button role="tab" aria-selected={tab === 'info'} className={tab === 'info' ? 'active' : ''} onClick={() => setTab('info')}>Thông tin cá nhân</button>
+              {profile.has_team && <button role="tab" aria-selected={tab === 'team'} className={tab === 'team' ? 'active' : ''} onClick={() => setTab('team')}>Nhóm của tôi</button>}
+            </div>
 
             {tab === 'mine' && (
               <>
@@ -306,6 +447,36 @@ export default function Profile({ authFetch: authFetchProp }) {
                 </label>
                 {showClosed && closed.map((wig) => <WigCard key={wig.id} wig={wig} authFetch={authFetch} notify={notify} onChanged={refreshAll} />)}
               </>
+            )}
+
+            {tab === 'info' && (
+              <form className="pf-card pf-form" onSubmit={saveOwn}>
+                <div className="wide">
+                  <h2>Thông tin cá nhân</h2>
+                  <p className="pf-optional">Các mục này không bắt buộc.</p>
+                  <p className="pf-muted">Bạn tự cập nhật. Chỉ bạn và quản trị viên xem được, quản lý trực tiếp không xem. Thông tin công việc (phòng ban, chức danh, hợp đồng...) do HR quản lý nên không sửa ở đây.</p>
+                </div>
+                <label className="pf-field">Điện thoại<input maxLength={30} value={own.phone} onChange={setOwnField('phone')} /></label>
+                <label className="pf-field">Zalo<input maxLength={40} value={own.zalo} onChange={setOwnField('zalo')} placeholder="Số hoặc tên Zalo" /></label>
+                <label className="pf-field">Ngày sinh<input type="date" value={own.birth_date} onChange={setOwnField('birth_date')} /></label>
+                <label className="pf-field">Giới tính
+                  <select value={own.gender} onChange={setOwnField('gender')}>
+                    <option value="">Không nêu</option>
+                    <option value="nam">Nam</option>
+                    <option value="nu">Nữ</option>
+                    <option value="khac">Khác</option>
+                  </select>
+                </label>
+                <label className="pf-field wide">Địa chỉ liên hệ<input maxLength={300} value={own.address} onChange={setOwnField('address')} /></label>
+                <label className="pf-field wide">Trình độ học vấn<input maxLength={200} value={own.education} onChange={setOwnField('education')} placeholder="Ví dụ: Cử nhân Sư phạm Anh, ĐH Sư phạm TP.HCM" /></label>
+                <label className="pf-field wide">Chuyên môn, kỹ năng<textarea rows={2} maxLength={500} value={own.expertise} onChange={setOwnField('expertise')} placeholder="Ví dụ: IELTS 7.5, tuyển dụng, Excel nâng cao" /></label>
+                <label className="pf-field wide">Giới thiệu ngắn<textarea rows={3} maxLength={500} value={own.bio} onChange={setOwnField('bio')} placeholder="Bạn phụ trách việc gì?" /></label>
+                <div className="wide"><h3 className="pf-sub">Người liên hệ khẩn cấp</h3></div>
+                <label className="pf-field">Họ tên<input maxLength={100} value={own.emergency_name} onChange={setOwnField('emergency_name')} /></label>
+                <label className="pf-field">Quan hệ<input maxLength={60} value={own.emergency_relation} onChange={setOwnField('emergency_relation')} placeholder="Vợ/chồng, bố/mẹ, anh/chị..." /></label>
+                <label className="pf-field wide">Điện thoại<input maxLength={30} value={own.emergency_phone} onChange={setOwnField('emergency_phone')} /></label>
+                <div className="pf-actions wide"><button className="btn pf-btn dark" disabled={busy}>Lưu thông tin</button></div>
+              </form>
             )}
 
             {tab === 'team' && (

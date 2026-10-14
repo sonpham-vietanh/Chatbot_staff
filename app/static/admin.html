@@ -222,6 +222,57 @@
   .note-box { margin: 4px 0 0; padding: 12px 14px; background: var(--cream-hover); border-radius: 6px; }
   .note-box strong { color: var(--navy); }
 
+
+  /* ---- danh bạ nhân sự & yêu cầu chỉnh sửa ---- */
+  .dir { max-width: 1280px; padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  @media (max-width: 640px) { .dir { padding: 16px; } }
+  .dir-tools { padding: 16px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .dir-tools input[type=search] { flex: 1 1 260px; height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--cream); color: var(--ink); outline: none; }
+  .dir-tools input[type=search]:focus { border-color: var(--navy); background: #fff; }
+  .dir-tools .tabs { flex: 0 0 auto; border-bottom: 0; }
+  .dir-tools .tab { flex: 0 0 auto; padding: 10px 16px; }
+  .dir-tools .spacer { flex: 1 1 auto; }
+  .dir-table-wrap { overflow-x: auto; }
+  table.dir-table { width: 100%; border-collapse: collapse; }
+  .dir-table th { padding: 12px 14px; text-align: left; font-weight: 700; color: var(--gold-text); background: var(--cream); border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .dir-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .dir-table tr:last-child td { border-bottom: 0; }
+  .dir-table td.name { font-weight: 700; color: var(--navy); }
+  .dir-table td.acts { min-width: 150px; }
+  .dir-table td.acts .btn { padding: 6px 12px; margin: 0 6px 6px 0; }
+  .dir-table .badge { white-space: nowrap; display: inline-block; }
+  .dir-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); color: var(--muted); flex-wrap: wrap; }
+  .dir-pager .btns { display: flex; gap: 8px; }
+  .dir-panel { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .dir-panel h2 { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy); }
+  .dir-sum { display: flex; flex-wrap: wrap; gap: 10px; }
+  .dir-sum .badge { padding: 4px 14px; }
+  .badge.err { background: #FCE4E2; color: #8A1C14; }
+  .badge.off { background: #ECECF3; color: #54556E; }
+  .dir-err { margin: 0; padding-left: 20px; color: #8A1C14; line-height: 1.6; }
+  .chg { display: block; color: var(--muted); }
+  .chg b { color: var(--navy); font-weight: 700; }
+  .form-err { margin: 0; padding: 12px 14px; background: #FCE4E2; color: #8A1C14; border-radius: 6px; font-weight: 600; }
+  .req-card { overflow: hidden; }
+  .req-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .req-change { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; background: var(--cream); border-radius: 6px; }
+  .req-change .old { color: var(--muted); text-decoration: line-through; }
+  .req-change .new { color: var(--navy); font-weight: 800; }
+  .req-change .arrow { color: var(--gold-text); font-weight: 800; }
+  .req-act { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .req-act .field { flex: 1 1 280px; }
+  .req-act .field input { height: 44px; }
+  .field input.bad { border-color: var(--danger); }
+  /* ---- hộp thoại ---- */
+  #modal { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px; overflow: auto; background: rgba(13,14,43,.55); }
+  .modal-card { width: 100%; max-width: 760px; background: #fff; border-radius: 10px; box-shadow: 0 24px 60px rgba(13,14,43,.35); padding: 28px; display: flex; flex-direction: column; gap: 18px; }
+  .modal-card h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--navy); }
+  .hist-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .hist-row:last-child { border-bottom: 0; }
+  .hist-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+  .hist-top strong { color: var(--navy); }
+  .hist-top span { color: var(--muted); }
+
   /* ---- toast ---- */
   #toast { position: fixed; top: 20px; right: 20px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
   .toast-item { max-width: 380px; padding: 14px 18px; background: var(--navy); color: #fff; font-weight: 600; box-shadow: 0 12px 28px rgba(13,14,43,.25); animation: vaToast .2s var(--ease) both; }
@@ -253,6 +304,8 @@
     <button class="nav-item" data-view="feedback"><span class="dot"></span>Báo sai<span class="nav-count" id="feedbackCount" hidden></span></button>
     <button class="nav-item" data-view="upload"><span class="dot"></span>Upload file</button>
     <button class="nav-item" data-view="stats"><span class="dot"></span>Thống kê</button>
+    <button class="nav-item" data-view="directory"><span class="dot"></span>Danh bạ nhân sự</button>
+    <button class="nav-item" data-view="requests"><span class="dot"></span>Yêu cầu chỉnh sửa<span class="nav-count" id="requestCount" hidden></span></button>
     <button class="nav-item" data-view="leaders"><span class="dot"></span>Leader</button>
     <button class="nav-item" data-view="report"><span class="dot"></span>Kết nối Major OS</button>
     <button class="nav-item" data-view="keys"><span class="dot"></span>API nhúng</button>
@@ -338,6 +391,12 @@
       <!-- Kết nối Major OS -->
       <div class="keys" id="view-report" hidden></div>
 
+      <!-- Danh bạ nhân sự -->
+      <div class="dir" id="view-directory" hidden></div>
+
+      <!-- Yêu cầu chỉnh sửa -->
+      <div class="dir" id="view-requests" hidden></div>
+
       <!-- Leader phòng ban -->
       <div class="keys" id="view-leaders" hidden></div>
 
@@ -347,6 +406,7 @@
   </div>
 </div>
 
+<div id="modal" hidden></div>
 <div id="toast"></div>
 
 <script>
@@ -362,6 +422,8 @@ const VIEWS = {
   upload: { crumb: "Tri thức", title: "Upload file", nav: "upload" },
   feedback: { crumb: "Chất lượng", title: "Câu trả lời bị báo sai", nav: "feedback" },
   stats: { crumb: "Báo cáo", title: "Thống kê câu hỏi", nav: "stats" },
+  directory: { crumb: "Nhân sự", title: "Danh bạ nhân sự", nav: "directory" },
+  requests: { crumb: "Nhân sự", title: "Yêu cầu chỉnh sửa", nav: "requests" },
   leaders: { crumb: "Phân quyền", title: "Leader phòng ban", nav: "leaders" },
   report: { crumb: "Tích hợp", title: "Kết nối Major OS", nav: "report" },
   keys: { crumb: "Tích hợp", title: "API nhúng", nav: "keys" },
@@ -428,6 +490,7 @@ function showApp() {
   setView("notes");
   loadNotes();
   loadFeedbackCount();
+  loadRequestCount();
 }
 
 $("loginBtn").onclick = () => {
@@ -447,12 +510,15 @@ function setView(name) {
   const meta = VIEWS[name];
   $("crumb").textContent = meta.crumb;
   $("pageTitle").textContent = meta.title;
-  $("newNoteBtn").parentElement.hidden = name === "new";
+  $("newNoteBtn").parentElement.hidden = ["new", "directory", "requests"].includes(name);
+  if (name !== "directory") closeModal();
   for (const key of Object.keys(VIEWS)) $(`view-${key}`).hidden = key !== name;
   document.querySelectorAll(".nav-item").forEach(btn => btn.classList.toggle("active", btn.dataset.view === meta.nav));
   if (name === "upload") resetUpload();
   if (name === "feedback") renderFeedback();
   if (name === "stats") renderStats();
+  if (name === "directory") renderDirectory();
+  if (name === "requests") renderRequests();
   if (name === "leaders") renderLeaders();
   if (name === "report") renderReportKeys();
   if (name === "keys") renderApiKeys();
@@ -922,6 +988,430 @@ async function renderApiKeys() {
         if (error.message !== "unauthorized") toast(error.message, true);
       }
     };
+  });
+}
+
+/* ---- danh bạ nhân sự ---- */
+const EMPLOYMENT_TYPES = { co_huu: "Cơ hữu", thinh_giang: "Thỉnh giảng", hop_dong: "Hợp đồng", khac: "Khác" };
+const DIR_COLUMNS = [
+  { key: "email", label: "Email", type: "email", required: true },
+  { key: "display_name", label: "Họ tên", required: true },
+  { key: "department", label: "Phòng ban", required: true },
+  { key: "job_title", label: "Chức danh", required: true },
+  { key: "employment_start_date", label: "Ngày vào công ty", type: "date" },
+  { key: "manager_email", label: "Quản lý trực tiếp (email)", type: "email" },
+  { key: "campus", label: "Cơ sở" },
+  { key: "work_phone", label: "Điện thoại công việc" },
+  { key: "employee_code", label: "Mã nhân viên" },
+  { key: "level_name", label: "Cấp bậc" },
+  { key: "contract_type", label: "Loại hợp đồng" },
+  { key: "employment_type", label: "Hình thức làm việc", type: "select" },
+  { key: "team_name", label: "Tổ chuyên môn" },
+  { key: "extra_roles", label: "Kiêm nhiệm" },
+  { key: "subjects", label: "Môn dạy" },
+  { key: "grade_levels", label: "Khối lớp phụ trách" },
+];
+const DIR_EDIT_EXTRA = [{ key: "employment_end_date", label: "Ngày nghỉ việc", type: "date" }];
+const DIR_LABELS = Object.fromEntries([...DIR_COLUMNS, ...DIR_EDIT_EXTRA].map(c => [c.key, c.label]));
+const CSV_SAMPLE = {
+  email: "nguyen.van.a@truongvietanh.com", display_name: "Nguyễn Văn A", department: "Academic", job_title: "Giáo viên Toán",
+  employment_start_date: "2024-09-01", manager_email: "", campus: "Cơ sở Thái Sơn", work_phone: "0900000000", employee_code: "VA001",
+  level_name: "", contract_type: "", employment_type: "Cơ hữu", team_name: "Tổ Toán", extra_roles: "Chủ nhiệm 6A", subjects: "Toán", grade_levels: "Khối 6",
+};
+const HISTORY_ACTIONS = { self_update: "Nhân viên tự sửa", hr_update: "HR cập nhật", create: "Tạo mới", deactivate: "Ngừng làm việc", reactivate: "Kích hoạt lại", import: "Nhập từ file", request_approved: "Duyệt yêu cầu", request_rejected: "Từ chối yêu cầu" };
+const IMPORT_ACTIONS = { create: "Tạo mới", update: "Cập nhật", unchanged: "Không đổi", error: "Lỗi" };
+const DIR_PAGE = 50;
+let dirQuery = "", dirActive = "true", dirOffset = 0, dirItems = [], dirTotal = 0, dirTimer = null;
+let importRows = null, importFileName = "";
+
+function fmtDate(value) { return value ? new Date(value).toLocaleString("vi-VN") : ""; }
+function openModal(html) { const m = $("modal"); m.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">${html}</div>`; m.hidden = false; return m; }
+function closeModal() { const m = $("modal"); m.hidden = true; m.innerHTML = ""; }
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("modal").hidden) closeModal(); });
+$("modal").addEventListener("mousedown", (event) => { if (event.target === $("modal")) closeModal(); });
+
+function renderDirectory() {
+  const box = $("view-directory");
+  box.innerHTML = `
+    <section class="card">
+      <div class="dir-tools">
+        <input id="dirSearch" type="search" placeholder="Tìm email, họ tên, phòng ban, chức danh, mã NV…" aria-label="Tìm nhân viên" value="${escapeHtml(dirQuery)}">
+        <div class="tabs" role="tablist">
+          <button class="tab ${dirActive === "true" ? "active" : ""}" data-dactive="true">Đang làm</button>
+          <button class="tab ${dirActive === "false" ? "active" : ""}" data-dactive="false">Đã nghỉ</button>
+          <button class="tab ${dirActive === "all" ? "active" : ""}" data-dactive="all">Tất cả</button>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn btn-outline" id="dirImportBtn">Nhập từ file CSV</button>
+        <button class="btn btn-primary" id="dirAddBtn">+ Thêm nhân viên</button>
+      </div>
+    </section>
+    <div id="dirImport"></div>
+    <section class="card">
+      <div class="dir-table-wrap"><div id="dirBody"></div></div>
+      <div class="dir-pager"><span id="dirSummary" aria-live="polite"></span><div class="btns"><button class="btn btn-outline btn-sm" id="dirPrev">← Trước</button><button class="btn btn-outline btn-sm" id="dirNext">Sau →</button></div></div>
+    </section>`;
+  $("dirSearch").oninput = (event) => {
+    dirQuery = event.target.value.trim();
+    clearTimeout(dirTimer);
+    dirTimer = setTimeout(() => { dirOffset = 0; loadDirectory(); }, 300);
+  };
+  box.querySelectorAll("[data-dactive]").forEach(tab => {
+    tab.onclick = () => {
+      dirActive = tab.dataset.dactive; dirOffset = 0;
+      box.querySelectorAll("[data-dactive]").forEach(t => t.classList.toggle("active", t === tab));
+      loadDirectory();
+    };
+  });
+  $("dirAddBtn").onclick = () => openEmployeeForm(null);
+  $("dirImportBtn").onclick = () => renderImportPanel();
+  $("dirPrev").onclick = () => { dirOffset = Math.max(0, dirOffset - DIR_PAGE); loadDirectory(); };
+  $("dirNext").onclick = () => { dirOffset += DIR_PAGE; loadDirectory(); };
+  if (importRows) renderImportPanel(true);
+  loadDirectory();
+}
+
+async function loadDirectory() {
+  const body = $("dirBody");
+  if (!body) return;
+  const params = new URLSearchParams({ q: dirQuery, active: dirActive, limit: DIR_PAGE, offset: dirOffset });
+  let data;
+  try {
+    data = await api(`/directory?${params}`);
+  } catch (error) {
+    if (error.message !== "unauthorized") body.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  if (!$("dirBody")) return;
+  dirItems = data.items || []; dirTotal = data.total ?? dirItems.length;
+  $("dirSummary").textContent = dirTotal ? `Hiển thị ${dirOffset + 1}–${dirOffset + dirItems.length} trên tổng ${dirTotal} nhân viên` : "Tổng 0 nhân viên";
+  $("dirPrev").disabled = dirOffset === 0;
+  $("dirNext").disabled = dirOffset + DIR_PAGE >= dirTotal;
+  if (!dirItems.length) { body.innerHTML = '<p class="empty">Không có nhân viên phù hợp.</p>'; return; }
+  body.innerHTML = `<table class="dir-table"><thead><tr><th>Họ tên</th><th>Email</th><th>Phòng ban</th><th>Chức danh</th><th>Cơ sở</th><th>Hình thức</th><th>Trạng thái</th><th></th></tr></thead><tbody>${dirItems.map((e, i) => `
+    <tr>
+      <td class="name">${escapeHtml(e.display_name)}</td>
+      <td>${escapeHtml(e.email)}</td>
+      <td>${escapeHtml(e.department)}</td>
+      <td>${escapeHtml(e.job_title)}</td>
+      <td>${escapeHtml(e.campus || "")}</td>
+      <td>${escapeHtml(EMPLOYMENT_TYPES[e.employment_type] || e.employment_type || "")}</td>
+      <td><span class="badge ${e.active ? "active" : "off"}">${e.active ? "Đang làm" : "Đã nghỉ"}</span></td>
+      <td class="acts">
+        <button class="btn btn-outline btn-sm" data-dedit="${i}">Sửa</button>
+        ${e.active ? `<button class="btn btn-danger btn-sm" data-ddeact="${i}">Ngừng làm việc</button>` : `<button class="btn btn-outline btn-sm" data-dreact="${i}">Kích hoạt lại</button>`}
+        <button class="btn btn-ghost btn-sm" data-dhist="${i}">Lịch sử</button>
+      </td>
+    </tr>`).join("")}</tbody></table>`;
+  body.querySelectorAll("[data-dedit]").forEach(b => { b.onclick = () => openEmployeeForm(dirItems[b.dataset.dedit]); });
+  body.querySelectorAll("[data-ddeact]").forEach(b => { b.onclick = () => openDeactivate(dirItems[b.dataset.ddeact]); });
+  body.querySelectorAll("[data-dreact]").forEach(b => { b.onclick = () => reactivateEmployee(dirItems[b.dataset.dreact]); });
+  body.querySelectorAll("[data-dhist]").forEach(b => { b.onclick = () => openHistory(dirItems[b.dataset.dhist]); });
+}
+
+function fieldInput(col, value) {
+  const v = value ?? "";
+  if (col.type === "select") {
+    return `<select data-col="${col.key}"><option value="">— Chưa chọn —</option>${Object.entries(EMPLOYMENT_TYPES).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select>`;
+  }
+  const type = col.type === "date" ? "date" : col.type === "email" ? "email" : "text";
+  return `<input data-col="${col.key}" type="${type}" value="${escapeHtml(v)}"${col.key === "email" && value ? " readonly" : ""}>`;
+}
+
+function openEmployeeForm(emp) {
+  const editing = Boolean(emp);
+  const cols = editing ? [...DIR_COLUMNS, ...DIR_EDIT_EXTRA] : DIR_COLUMNS;
+  openModal(`
+    <h2>${editing ? "Sửa nhân viên" : "Thêm nhân viên"}</h2>
+    <p class="form-err" id="empErr" role="alert" hidden></p>
+    <div class="grid-2">${cols.map(c => `<label class="field">${escapeHtml(c.label)}${c.required ? " *" : ""}${fieldInput(c, editing ? emp[c.key] : "")}</label>`).join("")}</div>
+    <p class="muted">Ô đánh dấu * là bắt buộc. Nhân viên nghỉ việc: dùng nút “Ngừng làm việc” ở danh sách.</p>
+    <div class="actions"><button class="btn btn-secondary" id="empSave">${editing ? "Lưu thay đổi" : "Thêm nhân viên"}</button><button class="btn btn-ghost" id="empCancel">Huỷ</button></div>`);
+  $("empCancel").onclick = closeModal;
+  const showErr = (msg) => { $("empErr").textContent = msg; $("empErr").hidden = false; $("empErr").scrollIntoView({ block: "center" }); };
+  $("empSave").onclick = async () => {
+    const values = {};
+    $("modal").querySelectorAll("[data-col]").forEach(el => { values[el.dataset.col] = el.value.trim(); });
+    if (values.email) values.email = values.email.toLowerCase().replace(/\s+/g, "");
+    if (values.manager_email) values.manager_email = values.manager_email.toLowerCase().replace(/\s+/g, "");
+    let payload;
+    if (editing) {
+      payload = {};
+      for (const [k, v] of Object.entries(values)) {
+        if (k === "email") continue;
+        if (v !== (emp[k] ?? "")) payload[k] = v === "" ? null : v;
+      }
+      if (!Object.keys(payload).length) { showErr("Chưa có thay đổi nào để lưu."); return; }
+    } else {
+      const missing = DIR_COLUMNS.filter(c => c.required && !values[c.key]).map(c => c.label);
+      if (missing.length) { showErr(`Cần nhập: ${missing.join(", ")}.`); return; }
+      payload = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ""));
+    }
+    $("empSave").disabled = true;
+    try {
+      if (editing) await api(`/directory/${encodeURIComponent(emp.email)}`, { method: "PUT", body: JSON.stringify(payload) });
+      else await api("/directory", { method: "POST", body: JSON.stringify(payload) });
+      closeModal();
+      toast(editing ? "Đã lưu thay đổi." : "Đã thêm nhân viên.");
+      loadDirectory();
+    } catch (error) {
+      if ($("empSave")) $("empSave").disabled = false;
+      if (error.message !== "unauthorized") showErr(error.message);
+    }
+  };
+}
+
+function openDeactivate(emp) {
+  openModal(`
+    <h2>Ngừng làm việc</h2>
+    <p class="muted">Nhân viên <strong>${escapeHtml(emp.display_name)}</strong> (${escapeHtml(emp.email)}) sẽ chuyển sang “Đã nghỉ”. Có thể kích hoạt lại sau.</p>
+    <p class="form-err" id="deactErr" role="alert" hidden></p>
+    <label class="field">Ngày nghỉ việc (tuỳ chọn)<input id="deactDate" type="date"></label>
+    <div class="actions"><button class="btn btn-secondary" id="deactOk">Xác nhận ngừng làm việc</button><button class="btn btn-ghost" id="deactCancel">Huỷ</button></div>`);
+  $("deactCancel").onclick = closeModal;
+  $("deactOk").onclick = async () => {
+    const end = $("deactDate").value;
+    $("deactOk").disabled = true;
+    try {
+      await api(`/directory/${encodeURIComponent(emp.email)}/deactivate`, { method: "POST", body: JSON.stringify(end ? { end_date: end } : {}) });
+      closeModal(); toast("Đã chuyển sang đã nghỉ."); loadDirectory();
+    } catch (error) {
+      if ($("deactOk")) $("deactOk").disabled = false;
+      if (error.message !== "unauthorized") { $("deactErr").textContent = error.message; $("deactErr").hidden = false; }
+    }
+  };
+}
+
+async function reactivateEmployee(emp) {
+  try {
+    await api(`/directory/${encodeURIComponent(emp.email)}/reactivate`, { method: "POST", body: "{}" });
+    toast("Đã kích hoạt lại."); loadDirectory();
+  } catch (error) {
+    if (error.message !== "unauthorized") toast(error.message, true);
+  }
+}
+
+function changesHtml(changes) {
+  if (!changes || typeof changes !== "object") return "";
+  if (Array.isArray(changes.fields)) return `<span class="chg">Trường đã đổi: ${changes.fields.map(f => escapeHtml(DIR_LABELS[f] || f)).join(", ")}</span>`;
+  return Object.entries(changes).map(([f, c]) => {
+    const isPair = c && typeof c === "object" && ("old" in c || "new" in c);
+    return `<span class="chg"><b>${escapeHtml(DIR_LABELS[f] || f)}</b>: ${isPair ? `${escapeHtml(c.old ?? "(trống)")} → ${escapeHtml(c.new ?? "(trống)")}` : escapeHtml(JSON.stringify(c))}</span>`;
+  }).join("");
+}
+
+async function openHistory(emp) {
+  openModal(`<h2>Lịch sử thay đổi</h2><p class="muted">${escapeHtml(emp.display_name)} · ${escapeHtml(emp.email)}</p><div id="histBody"><p class="empty">Đang tải…</p></div><div class="actions"><button class="btn btn-outline" id="histClose">Đóng</button></div>`);
+  $("histClose").onclick = closeModal;
+  try {
+    const data = await api(`/directory/${encodeURIComponent(emp.email)}/history`);
+    if (!$("histBody")) return;
+    $("histBody").innerHTML = (data.items || []).length ? data.items.map(h => `
+      <div class="hist-row"><div class="hist-top"><strong>${escapeHtml(HISTORY_ACTIONS[h.action] || h.action)}</strong><span>${escapeHtml(h.actor)} · ${escapeHtml(fmtDate(h.created_at))}</span></div>${changesHtml(h.changes)}</div>`).join("") : '<p class="empty">Chưa có thay đổi nào được ghi lại.</p>';
+  } catch (error) {
+    if ($("histBody") && error.message !== "unauthorized") $("histBody").innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+/* ---- nhập CSV ---- */
+function parseCsv(text) {
+  text = text.replace(/^﻿/, "");
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  let inQ = false, commas = 0, semis = 0;
+  for (const ch of firstLine) { if (ch === '"') inQ = !inQ; else if (!inQ) { if (ch === ",") commas++; else if (ch === ";") semis++; } }
+  const delim = semis > commas ? ";" : ",";
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); cell = ""; rows.push(row); row = []; }
+    else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ""));
+}
+
+function csvToObjects(text) {
+  const grid = parseCsv(text);
+  if (grid.length < 2) throw new Error("File không có dòng dữ liệu nào (cần dòng tiêu đề và ít nhất 1 dòng nhân viên).");
+  const known = new Set(DIR_COLUMNS.map(c => c.key));
+  const header = grid[0].map(h => h.trim().toLowerCase());
+  const unknown = header.filter(h => h && !known.has(h));
+  if (!header.includes("email")) throw new Error("Dòng đầu tiên phải có cột “email”. Hãy tải file CSV mẫu để xem đúng tên cột.");
+  const rows = grid.slice(1).map(r => {
+    const obj = {};
+    header.forEach((h, i) => { if (known.has(h) && (r[i] ?? "").trim() !== "") obj[h] = r[i].trim(); });
+    return obj;
+  });
+  return { rows, unknown };
+}
+
+function downloadCsvSample() {
+  const esc = (v) => /[",;\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  const keys = DIR_COLUMNS.map(c => c.key);
+  const text = "﻿" + keys.join(",") + "\r\n" + keys.map(k => esc(CSV_SAMPLE[k] || "")).join(",") + "\r\n";
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = "mau-danh-ba-nhan-su.csv";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+function renderImportPanel(keepResult) {
+  const holder = $("dirImport");
+  if (!keepResult) { importRows = null; importFileName = ""; }
+  holder.innerHTML = `
+    <section class="card dir-panel">
+      <h2>Nhập danh bạ từ file CSV</h2>
+      <p class="muted">File CSV mã hoá UTF-8, dòng đầu là tên cột (${DIR_COLUMNS.map(c => `<strong>${c.key}</strong>`).join(", ")}). Dùng dấu phẩy hoặc chấm phẩy đều được. Email trùng sẽ cập nhật; ô để trống không xoá dữ liệu cũ. Hệ thống chạy thử trước, bạn xem kết quả rồi mới bấm Áp dụng.</p>
+      <div class="actions" style="border-top:0;padding-top:0;align-items:center">
+        <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+        <button class="btn btn-secondary" id="csvPick">Chọn file CSV</button>
+        <button class="btn btn-outline" id="csvSample">Tải file CSV mẫu</button>
+        <button class="btn btn-ghost" id="csvClose">Đóng</button>
+        <span class="muted" id="csvName">${escapeHtml(importFileName)}</span>
+      </div>
+      <div id="csvResult"></div>
+    </section>`;
+  $("csvPick").onclick = () => $("csvFile").click();
+  $("csvSample").onclick = downloadCsvSample;
+  $("csvClose").onclick = () => { importRows = null; importFileName = ""; holder.innerHTML = ""; };
+  $("csvFile").onchange = async () => {
+    const file = $("csvFile").files?.[0];
+    if (!file) return;
+    importFileName = file.name; $("csvName").textContent = file.name;
+    const out = $("csvResult");
+    try {
+      const { rows, unknown } = csvToObjects(await file.text());
+      if (rows.length > 1000) throw new Error(`File có ${rows.length} dòng, tối đa 1000 dòng mỗi lần nhập. Hãy chia nhỏ file.`);
+      importRows = rows;
+      if (unknown.length) toast(`Bỏ qua cột không nhận ra: ${unknown.join(", ")}`, true);
+      await runImport(true);
+    } catch (error) {
+      importRows = null;
+      if (error.message !== "unauthorized") out.innerHTML = `<p class="form-err" role="alert">${escapeHtml(error.message)}</p>`;
+    }
+  };
+  if (keepResult && importRows) runImport(true);
+}
+
+async function runImport(dry) {
+  const out = $("csvResult");
+  out.innerHTML = `<p class="empty">${dry ? "Đang chạy thử…" : "Đang áp dụng…"}</p>`;
+  let r;
+  try {
+    r = await api("/directory/import", { method: "POST", body: JSON.stringify({ rows: importRows, dry_run: dry }) });
+  } catch (error) {
+    if (error.message !== "unauthorized") out.innerHTML = `<p class="form-err" role="alert">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const errs = r.errors || [], prev = r.preview || [];
+  const sum = `<div class="dir-sum"><span class="badge approved">Tạo mới: ${escapeHtml(r.created)}</span><span class="badge">Cập nhật: ${escapeHtml(r.updated)}</span><span class="badge off">Không đổi: ${escapeHtml(r.unchanged)}</span><span class="badge ${errs.length ? "err" : "off"}">Lỗi: ${errs.length}</span></div>`;
+  if (!dry) {
+    out.innerHTML = `<p class="gap-box"><strong>Đã áp dụng.</strong> Tạo mới ${escapeHtml(r.created)}, cập nhật ${escapeHtml(r.updated)}, không đổi ${escapeHtml(r.unchanged)}, bỏ qua ${errs.length} dòng lỗi.</p>`;
+    importRows = null; toast("Đã nhập danh bạ."); loadDirectory();
+    return;
+  }
+  const canApply = (r.created + r.updated) > 0;
+  out.innerHTML = `
+    <p class="muted"><strong>Kết quả chạy thử</strong> (chưa ghi gì vào dữ liệu). Số dòng tính theo dòng dữ liệu, không tính dòng tiêu đề.</p>
+    ${sum}
+    ${errs.length ? `<ul class="dir-err">${errs.map(e => `<li>Dòng ${escapeHtml(e.row)}${e.email ? ` (${escapeHtml(e.email)})` : ""}: ${escapeHtml(e.message)}</li>`).join("")}</ul>` : ""}
+    ${prev.length ? `<div class="dir-table-wrap"><table class="dir-table"><thead><tr><th>Dòng</th><th>Email</th><th>Việc sẽ làm</th><th>Thay đổi</th></tr></thead><tbody>${prev.map(p => `<tr><td>${escapeHtml(p.row)}</td><td>${escapeHtml(p.email)}</td><td><span class="badge ${p.action === "error" ? "err" : p.action === "create" ? "approved" : p.action === "unchanged" ? "off" : ""}">${escapeHtml(IMPORT_ACTIONS[p.action] || p.action)}</span></td><td>${changesHtml(p.changes)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="muted">Bảng xem trước hiển thị tối đa 50 dòng.</p>` : ""}
+    <div class="actions"><button class="btn btn-secondary" id="csvApply" ${canApply ? "" : "disabled"}>Áp dụng</button>${errs.length && canApply ? '<span class="muted" style="align-self:center">Các dòng lỗi sẽ bị bỏ qua.</span>' : ""}${canApply ? "" : '<span class="muted" style="align-self:center">Không có dòng nào để áp dụng.</span>'}</div>`;
+  const apply = $("csvApply");
+  if (apply) apply.onclick = async () => { apply.disabled = true; await runImport(false); };
+}
+
+/* ---- yêu cầu chỉnh sửa ---- */
+const REQUEST_STATUS = { pending: "Đang chờ", approved: "Đã duyệt", rejected: "Đã từ chối", cancelled: "Đã huỷ" };
+const REQUEST_FIELDS = { display_name: "Họ tên", job_title: "Chức danh", department: "Phòng ban", campus: "Cơ sở", work_phone: "Điện thoại công việc", employment_start_date: "Ngày vào công ty", team_name: "Tổ chuyên môn", extra_roles: "Kiêm nhiệm", subjects: "Môn dạy", grade_levels: "Khối lớp phụ trách" };
+let requestFilter = "pending";
+
+function setRequestCount(count) {
+  $("requestCount").textContent = count;
+  $("requestCount").hidden = !count;
+}
+async function loadRequestCount() {
+  try { setRequestCount((await api("/change-requests?status=pending")).pending_count); } catch { /* chỉ là số đếm phụ */ }
+}
+
+async function renderRequests() {
+  const box = $("view-requests");
+  if (!box.querySelector("#reqList")) {
+    box.innerHTML = `
+      <div class="card feedback-tabs"><div class="tabs" role="tablist">
+        ${[["pending", "Đang chờ"], ["approved", "Đã duyệt"], ["rejected", "Đã từ chối"], ["cancelled", "Đã huỷ"], ["all", "Tất cả"]].map(([k, l]) => `<button class="tab ${k === requestFilter ? "active" : ""}" data-rstatus="${k}">${l}</button>`).join("")}
+      </div></div>
+      <div id="reqList" style="display:flex;flex-direction:column;gap:20px"></div>`;
+    box.querySelectorAll("[data-rstatus]").forEach(tab => {
+      tab.onclick = () => {
+        requestFilter = tab.dataset.rstatus;
+        box.querySelectorAll("[data-rstatus]").forEach(t => t.classList.toggle("active", t === tab));
+        renderRequests();
+      };
+    });
+  }
+  const list = $("reqList");
+  list.innerHTML = '<p class="empty">Đang tải yêu cầu…</p>';
+  let data;
+  try {
+    data = await api(`/change-requests?status=${requestFilter}`);
+  } catch (error) {
+    if (error.message !== "unauthorized") list.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  setRequestCount(data.pending_count);
+  if (!data.items.length) {
+    list.innerHTML = `<div class="card editor-empty"><div class="rule"></div><p>${requestFilter === "pending" ? "Không có yêu cầu nào đang chờ" : "Không có yêu cầu nào"}</p><p>Nhân viên gửi yêu cầu chỉnh sửa thông tin ở trang Hồ sơ thì sẽ hiện ở đây.</p></div>`;
+    return;
+  }
+  list.innerHTML = data.items.map(r => {
+    const pending = r.status === "pending";
+    return `
+    <section class="card req-card" data-rid="${escapeHtml(r.id)}">
+      <div class="fb-head">
+        <div class="fb-tags"><strong class="row-title">${escapeHtml(r.display_name || r.email)}</strong><span class="badge ${r.status === "approved" ? "approved" : r.status === "rejected" ? "rejected" : r.status === "cancelled" ? "off" : ""}">${escapeHtml(REQUEST_STATUS[r.status] || r.status)}</span></div>
+        <span class="fb-meta">${escapeHtml(r.email)}${r.department ? ` · ${escapeHtml(r.department)}` : ""} · gửi ${escapeHtml(fmtDate(r.created_at))}</span>
+      </div>
+      <div class="req-body">
+        <div><span class="fb-label">${escapeHtml(r.label || REQUEST_FIELDS[r.field] || r.field)}</span>
+          <div class="req-change"><span class="old">${escapeHtml(r.old_value || "(trống)")}</span><span class="arrow">→</span><span class="new">${escapeHtml(r.new_value)}</span></div></div>
+        ${r.reason ? `<div class="fb-note"><strong>Lý do:</strong> ${escapeHtml(r.reason)}</div>` : ""}
+        ${!pending && r.review_note ? `<div class="fb-note"><strong>Ghi chú xử lý:</strong> ${escapeHtml(r.review_note)}${r.reviewed_at ? ` · ${escapeHtml(fmtDate(r.reviewed_at))}` : ""}</div>` : ""}
+        <p class="form-err" data-rerr hidden role="alert"></p>
+        ${pending ? `<div class="req-act">
+          <label class="field">Ghi chú (tuỳ chọn khi duyệt, bắt buộc khi từ chối)<input data-rnote maxlength="500" placeholder="Vd: Đã đối chiếu hợp đồng"></label>
+          <button class="btn btn-secondary" data-rapprove>Duyệt</button>
+          <button class="btn btn-outline" data-rreject>Từ chối</button>
+        </div>` : ""}
+      </div>
+    </section>`;
+  }).join("");
+  list.querySelectorAll("[data-rid]").forEach(card => {
+    const id = card.dataset.rid;
+    const note = card.querySelector("[data-rnote]");
+    const err = card.querySelector("[data-rerr]");
+    if (!note) return;
+    const act = async (kind) => {
+      const text = note.value.trim();
+      err.hidden = true; note.classList.remove("bad");
+      if (kind === "reject" && !text) { note.classList.add("bad"); err.textContent = "Cần nhập lý do khi từ chối."; err.hidden = false; note.focus(); return; }
+      card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+      try {
+        await api(`/change-requests/${encodeURIComponent(id)}/${kind}`, { method: "POST", body: JSON.stringify({ note: text }) });
+        toast(kind === "approve" ? "Đã duyệt và áp dụng vào danh bạ." : "Đã từ chối yêu cầu.");
+        await renderRequests();
+      } catch (error) {
+        card.querySelectorAll("button").forEach(b => { b.disabled = false; });
+        if (error.message !== "unauthorized") { err.textContent = error.message; err.hidden = false; loadRequestCount(); }
+      }
+    };
+    card.querySelector("[data-rapprove]").onclick = () => act("approve");
+    card.querySelector("[data-rreject]").onclick = () => act("reject");
   });
 }
 

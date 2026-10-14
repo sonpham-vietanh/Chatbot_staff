@@ -3,6 +3,7 @@ from functools import lru_cache
 import logging
 import re
 import secrets
+import time
 from typing import Any, Literal
 import uuid
 
@@ -16,8 +17,14 @@ from app.models.schemas import (
     ApiKeyCreateRequest,
     ApiKeyOut,
     AuthResponse,
+    ChangeRequestCreate,
+    ChangeRequestReviewRequest,
     ChatRequest,
     ChatResponse,
+    DirectoryCreateRequest,
+    DirectoryDeactivateRequest,
+    DirectoryFields,
+    DirectoryImportRequest,
     FeedbackCreateRequest,
     FeedbackStatusRequest,
     LeaderUpsertRequest,
@@ -49,6 +56,8 @@ from app.services.usage_service import FEATURES, ReportQueryError, UsageService,
 from app.services.employee_directory_service import EmployeeDirectoryService
 from app.services.knowledge_ingest import KnowledgeIngestService
 from app.services.llm import LLMError
+from app.services.directory_service import DirectoryError
+from app.services.profile_service import ProfileError
 from app.services.wig_service import WigError
 from app.services.rag_service import RAGService
 
@@ -183,20 +192,29 @@ def _viewer_department_role(user: dict) -> tuple[str | None, str]:
     return profile.get("department"), app_metadata.get("role") or "staff"
 
 
+HEALTH_CACHE_SECONDS = 30.0
+_HEALTH_CACHE: dict[str, Any] = {"value": None, "at": 0.0}
+
+
 @router.get("/health")
 def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
     """Endpoint này bị Docker HEALTHCHECK gọi mỗi 30s + frontend gọi mỗi lần load trang,
     nên chỉ lấy đúng cột 'status' — tránh kéo cả nội dung note (có thể rất nặng với file
     docx nhiều trang) về chỉ để đếm số lượng."""
-    notes = rag.supabase.select("knowledge_notes", {"select": "status"})
+    cached = _HEALTH_CACHE.get("value")
+    if cached is not None and time.monotonic() - _HEALTH_CACHE["at"] < HEALTH_CACHE_SECONDS:
+        return cached
+    notes = rag.supabase.select("knowledge_notes", {"select": "status"})  # lỗi DB thì ném ra như cũ: healthcheck phải báo hỏng
     approved_count = sum(1 for note in notes if note.get("status") == "approved")
-    return {
+    value = {
         "status": "ok",
         "service": "viet-anh-staff-assistant",
         "storage": "supabase",
         "knowledge_notes": len(notes),
         "approved_notes": approved_count,
     }
+    _HEALTH_CACHE.update(value=value, at=time.monotonic())
+    return value
 
 
 @router.get("/auth/config")
@@ -495,7 +513,7 @@ def get_points_service(rag: RAGService = Depends(get_rag_service)):
 def _wig_call(action, *args, **kwargs):
     try:
         return action(*args, **kwargs)
-    except WigError as error:
+    except (WigError, ProfileError) as error:
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
     except HTTPException:
         raise
@@ -503,7 +521,7 @@ def _wig_call(action, *args, **kwargs):
         logger.warning("Lỗi hồ sơ/WIG", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail="Chưa dùng được hồ sơ và WIG — kiểm tra đã chạy migration 20261007000000_profiles_wigs_points.sql trên Supabase chưa.",
+            detail="Chưa dùng được hồ sơ và WIG — kiểm tra đã chạy các migration 20261007000000_profiles_wigs_points.sql và 20261009000000_profile_more_fields.sql trên Supabase chưa.",
         ) from error
 
 
@@ -520,8 +538,120 @@ def my_profile(user: dict = Depends(require_user), profiles=Depends(get_profile_
 
 @router.put("/me/profile")
 def update_my_profile(body: ProfileUpdateRequest, user: dict = Depends(require_user), profiles=Depends(get_profile_service)) -> dict[str, str]:
-    _wig_call(profiles.update_self, user.get("email") or "", body.phone, body.bio)
+    _wig_call(profiles.update_self, user.get("email") or "", body.model_dump(mode="json", exclude_unset=True))
     return {"status": "saved"}
+
+
+@router.post("/me/profile/consent")
+def consent_profile(user: dict = Depends(require_user), profiles=Depends(get_profile_service)) -> dict[str, str]:
+    return {"status": "saved", "consent_at": _wig_call(profiles.give_consent, user.get("email") or "")}
+
+
+# ---------------------------------------------------------------------------
+# Danh bạ nhân sự (HR) và yêu cầu chỉnh sửa hồ sơ
+# ---------------------------------------------------------------------------
+DIRECTORY_MIGRATION_HINT = "Chưa dùng được danh bạ nhân sự — kiểm tra đã chạy migration 20261010000000_directory_admin_and_change_requests.sql trên Supabase chưa."
+
+
+def get_directory_service(rag: RAGService = Depends(get_rag_service)):
+    return rag.directory
+
+
+def get_change_request_service(rag: RAGService = Depends(get_rag_service)):
+    return rag.change_requests
+
+
+def _directory_call(action, *args, _error_status: int = 503, **kwargs):
+    """Lỗi nghiệp vụ -> đúng mã trong DirectoryError. Lỗi hạ tầng (thường do chưa chạy migration) -> `_error_status`
+    (503 cho nhân viên; route admin dùng 500 vì trang admin hiểu 503 là "chưa cấu hình ADMIN_TOKEN" và tự đăng xuất)."""
+    try:
+        return action(*args, **kwargs)
+    except DirectoryError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.warning("Lỗi danh bạ/yêu cầu chỉnh sửa", exc_info=True)
+        raise HTTPException(status_code=_error_status, detail=DIRECTORY_MIGRATION_HINT) from error
+
+
+def _admin_directory_call(action, *args, **kwargs):
+    return _directory_call(action, *args, _error_status=500, **kwargs)
+
+
+@router.get("/me/change-requests")
+def my_change_requests(user: dict = Depends(require_user), requests=Depends(get_change_request_service)) -> dict:
+    return {"items": _directory_call(requests.list_for, user.get("email") or "")}
+
+
+@router.post("/me/change-requests")
+def create_change_request(body: ChangeRequestCreate, user: dict = Depends(require_user), requests=Depends(get_change_request_service)) -> dict:
+    return _directory_call(requests.create, user.get("email") or "", body.field, body.new_value, body.reason)
+
+
+@router.post("/me/change-requests/{request_id}/cancel")
+def cancel_change_request(request_id: uuid.UUID, user: dict = Depends(require_user), requests=Depends(get_change_request_service)) -> dict:
+    return _directory_call(requests.cancel, user.get("email") or "", str(request_id))
+
+
+@router.get("/admin/directory", dependencies=[Depends(require_admin)])
+def admin_directory_list(
+    q: str = Query("", max_length=200),
+    active: Literal["true", "false", "all"] = Query("true"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    directory=Depends(get_directory_service),
+) -> dict:
+    return _admin_directory_call(directory.list, q, active, limit, offset)
+
+
+@router.post("/admin/directory", dependencies=[Depends(require_admin)])
+def admin_directory_create(body: DirectoryCreateRequest, directory=Depends(get_directory_service)) -> dict:
+    return _admin_directory_call(directory.create, body.model_dump())
+
+
+# Đường dẫn cố định (import) phải khai báo trước đường dẫn có tham số {email}.
+@router.post("/admin/directory/import", dependencies=[Depends(require_admin)])
+def admin_directory_import(body: DirectoryImportRequest, directory=Depends(get_directory_service)) -> dict:
+    return _admin_directory_call(directory.import_rows, body.rows, body.dry_run)
+
+
+@router.put("/admin/directory/{email}", dependencies=[Depends(require_admin)])
+def admin_directory_update(email: str, body: DirectoryFields, directory=Depends(get_directory_service)) -> dict:
+    return _admin_directory_call(directory.update, email, body.model_dump(exclude_unset=True))
+
+
+@router.post("/admin/directory/{email}/deactivate", dependencies=[Depends(require_admin)])
+def admin_directory_deactivate(email: str, body: DirectoryDeactivateRequest | None = None, directory=Depends(get_directory_service)) -> dict:
+    return _admin_directory_call(directory.deactivate, email, body.end_date if body else None)
+
+
+@router.post("/admin/directory/{email}/reactivate", dependencies=[Depends(require_admin)])
+def admin_directory_reactivate(email: str, directory=Depends(get_directory_service)) -> dict:
+    return _admin_directory_call(directory.reactivate, email)
+
+
+@router.get("/admin/directory/{email}/history", dependencies=[Depends(require_admin)])
+def admin_directory_history(email: str, directory=Depends(get_directory_service)) -> dict:
+    return {"items": _admin_directory_call(directory.history, email)}
+
+
+@router.get("/admin/change-requests", dependencies=[Depends(require_admin)])
+def admin_change_requests(
+    status: Literal["pending", "approved", "rejected", "cancelled", "all"] = Query("pending"),
+    requests=Depends(get_change_request_service),
+) -> dict:
+    return _admin_directory_call(requests.admin_list, status)
+
+
+@router.post("/admin/change-requests/{request_id}/approve", dependencies=[Depends(require_admin)])
+def admin_approve_change_request(request_id: uuid.UUID, body: ChangeRequestReviewRequest | None = None, requests=Depends(get_change_request_service)) -> dict:
+    return _admin_directory_call(requests.approve, str(request_id), body.note if body else None)
+
+
+@router.post("/admin/change-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
+def admin_reject_change_request(request_id: uuid.UUID, body: ChangeRequestReviewRequest, requests=Depends(get_change_request_service)) -> dict:
+    return _admin_directory_call(requests.reject, str(request_id), body.note)
 
 
 @router.get("/me/wigs")

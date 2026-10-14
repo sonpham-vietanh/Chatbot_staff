@@ -7,7 +7,7 @@ from app.config import Settings
 from app.models.schemas import MAX_HISTORY_ITEMS
 from app.rag.answer_format import clean_markdown, to_plain_text
 from app.rag.embeddings import ZeroEmbeddingProvider, build_embedding_provider
-from app.rag.lexical_store import LexicalStore
+from app.rag.lexical_store import LexicalStore, fold
 from app.rag.prompt_builder import FALLBACK_ANSWER, MISSING_DOC_RE, build_condense_prompt
 from app.rag.vector_store import VectorStore
 from app.services.admin_service import AdminService
@@ -22,6 +22,8 @@ from app.services.llm import FallbackLLMProvider, build_llm_provider
 from app.services.supabase_client import SupabaseClient
 from app.services.report_service import ReportKeyService, ReportService
 from app.services.points_service import PointsService
+from app.services.change_request_service import ChangeRequestService
+from app.services.directory_service import DirectoryService
 from app.services.profile_service import ProfileService
 from app.services.wig_service import WigService
 from app.services.usage_service import UsageService
@@ -30,6 +32,14 @@ from app.services.wiki_sync_service import WikiSyncService
 logger = logging.getLogger(__name__)
 
 WEAK_LEXICAL_SCORE = 0.4
+_FILLER = r"(?:\s+(?:may|bao nhieu|nao|gi|the nao|vay|a|nhi|nhe|nha|roi|ha))*"
+_END = r"[\s,!.?]*$"
+NO_DOCUMENT_QUESTION = re.compile(
+    rf"^\s*(?:(?:hom nay|hien nay|bay gio|hien tai)\s+(?:la\s+)?(?:ngay|thu|thang|nam|may gio){_FILLER}{_END}"
+    rf"|(?:xin chao|chao|hello|hi|alo)(?:\s+(?:ban|bot|tro ly|em|anh|chi|ad|admin))?{_END}"
+    rf"|(?:cam on|thanks|thank you|ok|oke)(?:\s+(?:ban|bot|nhe|nha|nhieu|rat nhieu))*{_END})")
+"""Chỉ khớp ĐÚNG câu ngày giờ / chào hỏi / cảm ơn (đã bỏ dấu, không kèm nội dung khác): kết quả từ khoá yếu là bình thường,
+không cần nhờ mô hình mở rộng từ khoá. Câu có thêm nội dung ("chào, nghỉ phép mấy ngày") không khớp nên vẫn được mở rộng."""
 KEYWORD_PROMPT = (
     "Bạn giúp tìm tài liệu nhân sự nội bộ của một trường học ở Việt Nam. Từ câu hỏi bên dưới, viết 8–14 từ khoá hoặc cụm từ "
     "tiếng Việt (có dấu) KHÁC NHAU mà tài liệu liên quan có thể dùng: đồng nghĩa, thuật ngữ nhân sự, tên loại tài liệu "
@@ -87,6 +97,8 @@ class AdvancedRAGPipeline:
         self.report = ReportService(self.supabase)
         self.report_keys = ReportKeyService(self.supabase)
         self.profiles = ProfileService(self.supabase)
+        self.directory = DirectoryService(self.supabase, getattr(settings, "allowed_email_domains", ""))
+        self.change_requests = ChangeRequestService(self.supabase, self.directory)
         self.wigs = WigService(self.supabase, settings.admin_emails)
         self.points = PointsService(self.supabase)
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None
@@ -136,7 +148,7 @@ class AdvancedRAGPipeline:
         noi dung da duoc duyet vao wiki (chinh sach cua truong, khong phai gioi han ky thuat)."""
         standalone = self._standalone_question(question, history)
         results = self.vector_store.search(standalone, self.settings.top_k)
-        if self.lexical and (not results or results[0]["score"] < WEAK_LEXICAL_SCORE):
+        if self.lexical and (not results or results[0]["score"] < WEAK_LEXICAL_SCORE) and not NO_DOCUMENT_QUESTION.match(fold(standalone)):
             results = self._expand_and_merge(standalone, results)
         return results
 

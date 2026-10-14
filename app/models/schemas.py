@@ -123,8 +123,63 @@ class FeedbackStatusRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    """Chỉ những khoá gửi lên mới được ghi (exclude_unset); chuỗi rỗng = xoá giá trị."""
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
+    zalo: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+    birth_date: datetime.date | None = None
+    gender: Literal["nam", "nu", "khac", ""] | None = None
+    address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
+    education: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
+    expertise: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    emergency_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+    emergency_relation: Annotated[str, StringConstraints(strip_whitespace=True, max_length=60)] | None = None
+    emergency_phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
     bio: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+
+
+class ChangeRequestCreate(BaseModel):
+    """Giá trị được kiểm tra chi tiết (độ dài theo từng trường, định dạng ngày) ở service để trả thông báo tiếng Việt."""
+    field: Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)]
+    new_value: Annotated[str, StringConstraints(max_length=2000)]
+    reason: Annotated[str, StringConstraints(max_length=2000)] | None = None
+
+
+class DirectoryFields(BaseModel):
+    """Các cột HR quản lý. Khoá lạ bị từ chối; khi sửa chỉ những khoá gửi lên mới được đổi (null/rỗng = xoá giá trị không bắt buộc)."""
+    model_config = {"extra": "forbid"}
+    display_name: str | None = None
+    department: str | None = None
+    job_title: str | None = None
+    employment_start_date: str | None = None
+    employment_end_date: str | None = None
+    manager_email: str | None = None
+    campus: str | None = None
+    work_phone: str | None = None
+    employee_code: str | None = None
+    level_name: str | None = None
+    contract_type: str | None = None
+    employment_type: str | None = None
+    team_name: str | None = None
+    extra_roles: str | None = None
+    subjects: str | None = None
+    grade_levels: str | None = None
+
+
+class DirectoryCreateRequest(DirectoryFields):
+    email: str
+
+
+class DirectoryDeactivateRequest(BaseModel):
+    end_date: str | None = None
+
+
+class DirectoryImportRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(max_length=1000)
+    dry_run: bool = True
+
+
+class ChangeRequestReviewRequest(BaseModel):
+    note: Annotated[str, StringConstraints(max_length=2000)] | None = None
 
 
 class WigCreateRequest(BaseModel):

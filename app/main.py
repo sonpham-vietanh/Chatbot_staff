@@ -1,3 +1,4 @@
+import threading
 import logging
 import mimetypes
 from functools import lru_cache
@@ -35,6 +36,9 @@ async def lifespan(app: FastAPI):
 
     watcher: VaultWatcher | None = None
     rag = get_rag_service()
+    warm = getattr(rag.vector_store, "warm", None)
+    if warm is not None:  # nạp chỉ mục tìm kiếm ở luồng nền để không chặn khởi động và người dùng đầu tiên không phải chờ
+        threading.Thread(target=warm, name="warm-lexical-index", daemon=True).start()
     if rag.ingest_agent is not None and rag.wiki_sync is not None:
         watcher = VaultWatcher(
             vault_path=rag.settings.vault_path,

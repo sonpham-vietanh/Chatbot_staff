@@ -86,6 +86,14 @@ class LexicalStore:
         self._avg_len = (sum(d["len"] for d in docs) / total) or 1.0
         self._docs = docs
 
+    def warm(self) -> int:
+        """Nạp chỉ mục ngay (gọi lúc khởi động, trong luồng nền). Trả về số đoạn; lỗi thì để lần tìm đầu tiên nạp lại."""
+        try:
+            self._ensure_fresh()
+        except Exception:  # noqa: BLE001
+            return 0
+        return len(self._docs)
+
     def _ensure_fresh(self) -> None:
         if time.monotonic() - self._loaded_at < self.ttl and self._docs:
             return
