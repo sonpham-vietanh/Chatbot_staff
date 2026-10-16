@@ -207,3 +207,27 @@ def test_change_request_without_a_reason_is_rejected():
     with pytest.raises(DirectoryError) as error:
         service.create("lan@truongvietanh.com", "campus", "B")
     assert error.value.status_code == 422 and "lý do" in error.value.detail
+
+
+def test_changing_the_directory_also_drops_the_cached_asker_block():
+    routes._ASKER_CACHE["lan@truongvietanh.com"] = ("cũ", 0.0)
+    routes.clear_user_cache()
+    assert routes._ASKER_CACHE == {}
+
+
+def test_greeting_does_not_wait_for_the_askers_profile_lookup(monkeypatch):
+    called = []
+    monkeypatch.setattr(routes, "_asker_context", lambda rag, user: called.append(1))
+    app.dependency_overrides[routes.require_user] = lambda: {"id": "u1", "email": "lan@truongvietanh.com", "user_metadata": {}}
+    rag = SimpleNamespace(chat=lambda *a, **k: {"answer": "x", "grounded": False, "citations": []},
+                          _quick_reply=AdvancedRAGPipeline._quick_reply, supabase=None, usage=None, wigs=None, profiles=None, points=None)
+    app.dependency_overrides[routes.get_rag_service] = lambda: rag
+    app.dependency_overrides[routes.get_chat_history_service] = lambda: SimpleNamespace(
+        thread_belongs_to=lambda *a: True, create_thread_with_id=lambda *a: None, add_turn=lambda *a: None, list_messages=lambda *a: [])
+    try:
+        TestClient(app).post("/api/chat-staff", json={"question": "xin chào"})
+        assert called == []                                  # câu chào: không lấy hồ sơ
+        TestClient(app).post("/api/chat-staff", json={"question": "tôi được mấy ngày phép năm nay"})
+        assert called == [1]                                 # câu thật: có lấy
+    finally:
+        app.dependency_overrides.clear()

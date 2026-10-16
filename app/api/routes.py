@@ -197,6 +197,7 @@ _USER_CACHE_LOCK = threading.Lock()
 def clear_user_cache() -> None:
     with _USER_CACHE_LOCK:
         _USER_CACHE.clear()
+    _ASKER_CACHE.clear()  # thông tin "người hỏi" lấy từ danh bạ: danh bạ vừa đổi thì bỏ luôn
 
 
 def _cache_user(cache_key: str, user: dict) -> None:
@@ -372,7 +373,8 @@ def refresh_token(
 
 
 @router.get("/auth/me")
-def me(user: dict = Depends(require_user)) -> dict:
+def me(background_tasks: BackgroundTasks, user: dict = Depends(require_user), rag: RAGService = Depends(get_rag_service)) -> dict:
+    background_tasks.add_task(_asker_context, rag, user)  # làm nóng: lần chat đầu không phải chờ lấy hồ sơ
     profile = user.get("employee_profile")
     metadata = user.get("user_metadata") or {}
     return {
@@ -592,7 +594,7 @@ def _own_info_answer(rag: Any, user: dict, question: str) -> dict | None:
     return None
 
 
-ASKER_CACHE_SECONDS = 60.0
+ASKER_CACHE_SECONDS = 180.0
 ASKER_CACHE_MAX = 500
 _ASKER_CACHE: dict[str, tuple[str | None, float]] = {}
 _ASKER_CACHE_LOCK = threading.Lock()
@@ -687,7 +689,8 @@ def chat_staff(
         if not turns and request.thread_id:
             turns = _stored_history(history, thread_id, user["id"])
         extra = {}
-        asker = _asker_context(rag, user)
+        quick = getattr(rag, "_quick_reply", None)
+        asker = None if (quick is not None and quick(request.question) is not None) else _asker_context(rag, user)
         if asker:
             extra["asker"] = asker
         try:
