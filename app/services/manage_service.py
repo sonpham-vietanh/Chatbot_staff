@@ -10,6 +10,7 @@ vì AdminService tự cắt chunk + embed lại ngay khi ghi.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from typing import Any
 
 from app.services.admin_service import AdminService, NoteNotFoundError
 from app.services.supabase_client import SupabaseClient
+
+logger = logging.getLogger(__name__)
 
 DEPARTMENTS = ("HR", "Finance", "Academic", "Admin", "Unassigned")
 SUMMARY_COLUMNS = "id,title,department,status,access_level,version,updated_at,created_by,source_file"
@@ -116,7 +119,8 @@ class ManageService:
 
     @staticmethod
     def can_edit(profile: dict[str, Any], department: str) -> bool:
-        return department in profile["departments"]
+        # Dữ liệu cũ có phòng "FI" (cùng nghĩa với Finance): leader phụ trách Finance cũng sửa được.
+        return department in profile["departments"] or (department == "FI" and "Finance" in profile["departments"])
 
     def _require_edit(self, profile: dict[str, Any], department: str) -> None:
         self.require_manager(profile)
@@ -164,14 +168,24 @@ class ManageService:
 
     # ---- lịch sử ----
     def _record(self, note: dict[str, Any], kind: str, by: str) -> None:
-        rows = self.client.select("knowledge_note_versions", {
-            "select": "version_no", "note_id": f"eq.{note['id']}", "order": "version_no.desc", "limit": "1"})
-        number = (rows[0]["version_no"] + 1) if rows else 1
-        self.client.insert("knowledge_note_versions", [{
-            "note_id": str(note["id"]), "version_no": number, "change_kind": kind, "changed_by": by,
-            "title": note["title"], "department": note["department"], "access_level": note.get("access_level") or "staff",
-            "status": note.get("status") or "draft", "content": note["content"],
-        }], returning=False)
+        """Ghi một phiên bản lịch sử. Hai lần sửa đồng thời có thể tính trùng số phiên bản (UNIQUE note_id, version_no):
+        thử lại với số mới; ghi lịch sử không được làm hỏng thao tác sửa đã thành công nên cạn lượt thử thì chỉ log."""
+        for attempt in range(4):
+            rows = self.client.select("knowledge_note_versions", {
+                "select": "version_no", "note_id": f"eq.{note['id']}", "order": "version_no.desc", "limit": "1"})
+            number = (rows[0]["version_no"] + 1) if rows else 1
+            try:
+                self.client.insert("knowledge_note_versions", [{
+                    "note_id": str(note["id"]), "version_no": number, "change_kind": kind, "changed_by": by,
+                    "title": note["title"], "department": note["department"], "access_level": note.get("access_level") or "staff",
+                    "status": note.get("status") or "draft", "content": note["content"],
+                }], returning=False)
+                return
+            except Exception as error:
+                duplicate = "23505" in str(error) or "duplicate" in str(error).casefold() or "409" in str(error)
+                if not duplicate or attempt == 3:
+                    logger.warning("Không ghi được lịch sử phiên bản của note %s", note.get("id"), exc_info=True)
+                    return
 
     def versions(self, profile: dict[str, Any], note_id: str) -> list[dict[str, Any]]:
         self.require_manager(profile)

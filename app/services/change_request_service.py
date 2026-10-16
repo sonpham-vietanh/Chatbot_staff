@@ -1,10 +1,10 @@
 """Yêu cầu chỉnh sửa thông tin HR: nhân viên gửi, HR duyệt (áp giá trị vào danh bạ) hoặc từ chối."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
-from app.services.directory_service import REQUESTABLE_FIELDS, DirectoryError, DirectoryService, normalize_email, parse_date
+from app.services.directory_service import REQUESTABLE_FIELDS, DirectoryError, DirectoryService, normalize_email, parse_date, strip_control, validate_phone
 from app.services.supabase_client import SupabaseClient
 
 REQUEST_STATUSES = ("pending", "approved", "rejected", "cancelled")
@@ -47,14 +47,20 @@ class ChangeRequestService:
         spec = REQUESTABLE_FIELDS.get(field)
         if spec is None:
             raise DirectoryError(422, "Trường này không thể gửi yêu cầu chỉnh sửa, hãy liên hệ HR.")
-        value = " ".join(_text(new_value).split())
+        value = " ".join(strip_control(_text(new_value)).split())
         if not value:
             raise DirectoryError(422, f"Giá trị mới của {spec['label']} không được để trống.")
         if len(value) > spec["max_length"]:
             raise DirectoryError(422, f"{spec['label']} dài tối đa {spec['max_length']} ký tự.")
         if spec["type"] == "date":
             value = parse_date(value, spec["label"])
-        note = " ".join(_text(reason).split()) or None
+            if value > date.today().isoformat():
+                raise DirectoryError(422, f"{spec['label']} không được ở tương lai.")
+        if field == "work_phone":
+            validate_phone(value, spec["label"])
+        note = " ".join(strip_control(_text(reason)).split()) or None
+        if not note or len(note) < 5:
+            raise DirectoryError(422, "Cần ghi lý do chỉnh sửa (ít nhất 5 ký tự) để HR kiểm tra nhanh hơn.")
         if note and len(note) > 500:
             raise DirectoryError(422, "Lý do dài tối đa 500 ký tự.")
         current = self.directory.get(email)
@@ -112,9 +118,17 @@ class ChangeRequestService:
         if _text(current.get(field)) != _text(row.get("old_value")):
             raise DirectoryError(409, "Dữ liệu đã đổi từ lúc gửi yêu cầu, hãy từ chối hoặc nhờ nhân viên gửi lại.")
         new_value = row["new_value"]
-        self.client.update("employee_directory", {"email": f"eq.{email}"}, {field: new_value, "updated_at": _now()})
+        # Chiếm yêu cầu TRƯỚC (chỉ một lệnh thắng nếu duyệt/huỷ/duyệt lại cùng lúc), rồi mới áp giá trị vào danh bạ.
         updated = self.client.update("profile_change_requests", {"id": f"eq.{request_id}", "status": "eq.pending"}, {
             "status": "approved", "reviewed_by": "admin", "review_note": (note or "").strip()[:500] or None, "reviewed_at": _now()})
+        if not updated:
+            raise DirectoryError(409, "Yêu cầu này vừa được xử lý ở nơi khác.")
+        try:
+            self.client.update("employee_directory", {"email": f"eq.{email}"}, {field: new_value, "updated_at": _now()})
+        except Exception:
+            # Không áp được giá trị: trả yêu cầu về chờ duyệt để HR thử lại, không để trạng thái "đã duyệt" mà danh bạ chưa đổi.
+            self.client.update("profile_change_requests", {"id": f"eq.{request_id}"}, {"status": "pending", "reviewed_by": None, "reviewed_at": None})
+            raise
         self.directory.audit(email, "admin", "request_approved", {field: {"old": row.get("old_value"), "new": new_value}})
         return request_view(updated[0]) if updated else request_view({**row, "status": "approved"})
 

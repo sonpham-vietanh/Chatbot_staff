@@ -16,7 +16,7 @@
   :root {
     --navy: #14153A; --navy-900: #0D0E2B; --navy-600: #26275D; --navy-100: #E2E3F0;
     --cta: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); --gold: #E8C40A; --gold-text: #7A5F00;
-    --cream: #FAF9F4; --cream-hover: #FBF6DC; --line: #E7E5DA; --ink: #1A1A2E; --muted: #54556E; --placeholder: #8A8BA3;
+    --cream: #FAF9F4; --cream-hover: #FBF6DC; --line: #E7E5DA; --ink: #1A1A2E; --muted: #54556E; --placeholder: #6B6C85;
     --success: #1E7F4F; --danger: #E03C31; --ease: cubic-bezier(.4,0,.2,1);
     --dark-bg: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(160deg, #14153A 0%, #1C1D4A 100%);
   }
@@ -69,7 +69,7 @@
   .login-card .field input { height: 50px; padding: 0 16px; }
   .login-error { margin: 10px 0 0; color: var(--danger); min-height: 0; }
   .login-card .btn { margin-top: 20px; }
-  .login-card .back { display: block; margin-top: 20px; text-align: center; }
+  .login-card .back { display: block; margin-top: 20px; padding: 10px 0; min-height: 40px; text-align: center; }
 
   /* ---- khung app ---- */
   #app { height: 100%; display: flex; }
@@ -151,7 +151,7 @@
   .editor-body .actions .btn-danger { margin-left: auto; }
 
   /* ---- upload ---- */
-  .drop-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 20px; background: #fff; border: 2px dashed #D6D3C4; border-radius: 10px; cursor: pointer; text-align: center; transition: background .15s, border-color .15s; }
+  .drop-zone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 56px 20px; background: #fff; border: 2px dashed #D6D3C4; border-radius: 0; cursor: pointer; text-align: center; transition: background .15s, border-color .15s; }
   .drop-zone:hover { border-color: var(--navy); }
   .drop-zone.drag { background: var(--navy-100); border-color: var(--navy); }
   .drop-zone.picked { background: var(--cream-hover); }
@@ -439,29 +439,47 @@ const $ = (id) => document.getElementById(id);
 
 function headers() { return { "X-Admin-Token": token, "Content-Type": "application/json" }; }
 
+// detail là chuỗi → dùng nguyên văn; mảng/object (422 thô) → câu chung
+function detailText(body, status) {
+  if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+  return body.detail ? "Dữ liệu chưa hợp lệ" : `Lỗi ${status}`;
+}
+
+// Trả về true nếu response là lỗi xác thực đã xử lý (caller phải dừng).
+// 401 = token sai; 503 chỉ coi là "chưa cấu hình ADMIN_TOKEN" khi detail đúng nội dung đó,
+// 503 khác là lỗi tạm thời: báo lỗi, KHÔNG xoá token.
+async function handleAuthFailure(res) {
+  if (res.status !== 401 && res.status !== 503) return false;
+  if (res.status === 503) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (typeof body.detail === "string" && body.detail.includes("ADMIN_TOKEN")) {
+      sessionStorage.removeItem("admin_token");
+      showLogin("Server chưa cấu hình ADMIN_TOKEN.");
+    } else {
+      toast("Máy chủ tạm thời không phản hồi, vui lòng thử lại sau ít phút.", true);
+    }
+    return true;
+  }
+  sessionStorage.removeItem("admin_token");
+  showLogin("Token không hợp lệ.");
+  return true;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(API + path, { ...options, headers: headers() });
-  if (res.status === 401 || res.status === 503) {
-    sessionStorage.removeItem("admin_token");
-    showLogin(res.status === 503 ? "Server chưa cấu hình ADMIN_TOKEN." : "Token không hợp lệ.");
-    throw new Error("unauthorized");
-  }
+  if (await handleAuthFailure(res)) throw new Error("unauthorized");
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Lỗi ${res.status}`);
+    throw new Error(detailText(body, res.status));
   }
   return res.status === 204 ? null : res.json();
 }
 
 async function apiUpload(path, formData) {
   const res = await fetch(API + path, { method: "POST", headers: { "X-Admin-Token": token }, body: formData });
-  if (res.status === 401 || res.status === 503) {
-    sessionStorage.removeItem("admin_token");
-    showLogin(res.status === 503 ? "Server chưa cấu hình ADMIN_TOKEN." : "Token không hợp lệ.");
-    throw new Error("unauthorized");
-  }
+  if (await handleAuthFailure(res)) throw new Error("unauthorized");
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail || `Lỗi ${res.status}`);
+  if (!res.ok) throw new Error(detailText(body, res.status));
   return body;
 }
 
@@ -1511,7 +1529,7 @@ let freshReportKey = null;
 async function downloadReportSpec() {
   try {
     const res = await fetch(`${API}/report-spec`, { headers: headers() });
-    if (res.status === 401 || res.status === 503) { showLogin("Token không hợp lệ."); return; }
+    if (await handleAuthFailure(res)) return;
     if (!res.ok) throw new Error("Không tải được file mô tả.");
     const url = URL.createObjectURL(await res.blob());
     const link = document.createElement("a");

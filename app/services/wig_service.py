@@ -52,7 +52,8 @@ def _now() -> str:
 
 
 def _clean(text: Any, limit: int) -> str | None:
-    value = " ".join(str(text or "").split()) if limit <= 200 else str(text or "").strip()
+    text = "".join(ch for ch in str(text or "") if ch in (chr(10), chr(9)) or (ch >= " " and ch != chr(127)))  # bỏ NUL/ký tự điều khiển
+    value = " ".join(text.split()) if limit <= 200 else text.strip()
     return value[:limit] or None
 
 
@@ -134,6 +135,10 @@ class WigService:
                "metric_name": metric, "unit": _clean(payload.get("unit"), 30), "start_value": start, "target_value": target,
                "current_value": current, "due_date": payload.get("due_date") or None, "status": "active"}
         created = self.client.insert("wigs", [row])[0]
+        # Hai yêu cầu tạo đồng thời cùng vượt kiểm tra đếm ở trên: đếm lại sau khi ghi, vượt trần thì rút bản vừa tạo.
+        if len([w for w in self.list_for(owner) if w["status"] == "active"]) > MAX_ACTIVE_WIGS:
+            self.client.delete("wigs", {"id": f"eq.{created['id']}"})
+            raise WigError(409, f"Đang có {MAX_ACTIVE_WIGS} WIG chạy. Hãy hoàn thành hoặc bỏ bớt trước khi thêm.")
         self.client.insert("wig_updates", [{"wig_id": created["id"], "value": current, "note": "Tạo WIG", "created_by": owner}], returning=False)
         return self.decorate(created)
 
@@ -166,12 +171,50 @@ class WigService:
         if wig["status"] != "active":
             raise WigError(409, "WIG này đã đóng. Mở lại (chuyển về đang chạy) trước khi cập nhật tiến độ.")
         number = to_number(value, "Giá trị hiện tại")
-        self.client.insert("wig_updates", [{"wig_id": wig_id, "value": number, "note": _clean(note, 1000),
-                                            "created_by": owner.strip().casefold()}], returning=False)
-        rows = self.client.update("wigs", {"id": f"eq.{wig_id}"}, {"current_value": number, "updated_at": _now()})
+        mine = self.client.insert("wig_updates", [{"wig_id": wig_id, "value": number, "note": _clean(note, 1000),
+                                                   "created_by": owner.strip().casefold()}])[0]
+        # Nhiều cập nhật đồng thời: lấy giá trị của bản ghi lịch sử MỚI NHẤT làm giá trị hiện tại để hai nơi luôn khớp nhau.
+        latest = self.client.select("wig_updates", {"select": "id,value,created_at", "wig_id": f"eq.{wig_id}", "order": "created_at.desc", "limit": "1"})
+        current = number
+        if latest and latest[0].get("id") != mine.get("id") and str(latest[0].get("created_at")) > str(mine.get("created_at")):
+            current = float(latest[0]["value"])
+        rows = self.client.update("wigs", {"id": f"eq.{wig_id}"}, {"current_value": current, "updated_at": _now()})
         return self.decorate(rows[0])
 
     # ---------- chatbot ----------
+    @staticmethod
+    def _metric_text(wig: dict[str, Any]) -> str:
+        unit = f" {wig['unit']}" if wig.get("unit") else ""
+        start, target, current = float(wig["start_value"]), float(wig["target_value"]), float(wig["current_value"])
+        if target < start:  # chỉ số càng thấp càng tốt: "9/8" dễ bị hiểu là chưa đạt
+            return f"{wig['metric_name']}: đầu kỳ {format_number(start)} → hiện {format_number(current)}, mục tiêu ≤ {format_number(target)}{unit}"
+        return f"{wig['metric_name']}: {format_number(current)}/{format_number(target)}{unit}"
+
+    def chat_view(self, owner: str, kind: str) -> str:
+        """WIG đã hoàn thành ("done") hoặc đã bỏ ("dropped") của chính người hỏi."""
+        label = "đã hoàn thành" if kind == "done" else "đã bỏ"
+        rows = [w for w in self.list_for(owner, include_dropped=True) if w["status"] == kind]
+        if not rows:
+            return f"Bạn chưa có WIG nào {label}."
+        lines = [f"Bạn có **{len(rows)} WIG** {label}:", ""]
+        for wig in rows:
+            lines.append(f"- **{wig['title']}** ({wig['period_label']}): {format_number(wig['progress'])}% — {self._metric_text(wig)}")
+        return "\n".join(lines)
+
+    def chat_team(self, manager: str) -> str:
+        """Tóm tắt WIG đang chạy của những người báo cáo trực tiếp (chỉ người quản lý trực tiếp mới xem được)."""
+        people = self.team(manager)
+        if not people:
+            return "Mình chưa thấy ai báo cáo trực tiếp cho bạn trong danh bạ nhân sự. Nếu thiếu, bạn nhờ HR cập nhật quản lý trực tiếp."
+        lines = [f"Nhóm của bạn có **{len(people)} người**:", ""]
+        for person in people:
+            wigs = person["wigs"]
+            late = sum(1 for w in wigs if w.get("overdue"))
+            detail = f"{len(wigs)} WIG đang chạy" + (f", **{late} quá hạn**" if late else "") if wigs else "chưa có WIG đang chạy"
+            lines.append(f"- {person.get('display_name') or person['email']} ({person.get('job_title') or 'chưa có chức danh'}): {detail}")
+        lines += ["", "Xem chi tiết ở tab **Nhóm của tôi** trong trang **Hồ sơ**."]
+        return "\n".join(lines)
+
     def chat_summary(self, owner: str, display_name: str | None = None) -> str:
         """Câu trả lời cho "WIG của tôi tới đâu rồi?" — lấy thẳng từ cơ sở dữ liệu, không qua mô hình ngôn ngữ."""
         wigs = [w for w in self.list_for(owner) if w["status"] == "active"]
@@ -180,13 +223,13 @@ class WigService:
                     "rồi cập nhật tiến độ ở đó để mình báo lại cho bạn khi cần.")
         lines = [f"Bạn đang có **{len(wigs)} WIG** đang chạy:", ""]
         for wig in wigs:
-            unit = f" {wig['unit']}" if wig.get("unit") else ""
-            line = (f"- **{wig['title']}** ({wig['period_label']}): **{format_number(wig['progress'])}%** — "
-                    f"{wig['metric_name']}: {format_number(wig['current_value'])}/{format_number(wig['target_value'])}{unit}")
+            line = f"- **{wig['title']}** ({wig['period_label']}): **{format_number(wig['progress'])}%** — {self._metric_text(wig)}"
             if wig.get("due_date"):
                 line += f", hạn {wig['due_date']}"
             if wig.get("overdue"):
                 line += " (**đã quá hạn**)"
+            if wig["progress"] >= 100:
+                line += " — **đã đạt mục tiêu**, bạn có thể đóng WIG này ở trang Hồ sơ"
             lines.append(line)
         lines += ["", "Cập nhật tiến độ ở trang **Hồ sơ**."]
         return "\n".join(lines)

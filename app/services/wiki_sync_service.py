@@ -2,12 +2,15 @@
 goi chinh minh, vi da nam chung 1 process voi API roi)."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from app.services.admin_service import AdminService
+
+logger = logging.getLogger(__name__)
 
 DOMAIN_TO_DEPARTMENT = {
     "nhan-su": "HR",
@@ -63,14 +66,25 @@ def _wiki_md_files(vault: Path) -> list[Path]:
 
 
 def collect_wiki_pages(vault_path: str) -> list[dict[str, Any]]:
+    return collect_wiki(vault_path)[0]
+
+
+def collect_wiki(vault_path: str) -> tuple[list[dict[str, Any]], set[str]]:
+    """Trả (các trang đọc được, đường dẫn các file TỒN TẠI nhưng không đọc được).
+
+    File không đọc được (Drive đang đồng bộ dở, frontmatter hỏng, sai mã hoá) khác với file đã bị xoá: đồng bộ không được coi
+    chúng là "trang đã biến mất" và xoá mất note đang chạy ổn trên chatbot."""
     vault = Path(vault_path)
     pages = []
+    unreadable: set[str] = set()
     for path in _wiki_md_files(vault):
         try:
-            meta, body = _parse_frontmatter(path.read_text(encoding="utf-8"))
-        except (yaml.YAMLError, UnicodeDecodeError):
+            meta, body = _parse_frontmatter(path.read_text(encoding="utf-8-sig"))  # utf-8-sig: nhận cả file có BOM
+        except (yaml.YAMLError, UnicodeDecodeError, OSError):
+            unreadable.add(str(path.relative_to(vault)).replace("\\", "/"))
             continue  # 1 file hỏng frontmatter không được làm hỏng cả lần đồng bộ
         if not isinstance(meta, dict) or not meta.get("title"):
+            unreadable.add(str(path.relative_to(vault)).replace("\\", "/"))
             continue
         if meta.get("chatbot") is False:
             continue  # trang hướng dẫn nội bộ (vd. cài Drive) — người dùng chủ động loại khỏi chatbot
@@ -82,7 +96,7 @@ def collect_wiki_pages(vault_path: str) -> list[dict[str, Any]]:
             "access_level": "manager" if meta.get("confidential") else "staff",
             "content": body.strip(),
         })
-    return pages
+    return pages, unreadable
 
 
 VAULT_PREFIX = "vault:"
@@ -114,7 +128,7 @@ class WikiSyncService:
             pass  # lịch sử lỗi không được làm hỏng đồng bộ
 
     def sync_all(self, status: str = "approved") -> dict[str, int]:
-        pages = collect_wiki_pages(self.vault_path)
+        pages, unreadable = collect_wiki(self.vault_path)
         notes = self.admin.list_notes("all")
         by_source = {n["source_file"]: n for n in notes if str(n.get("source_file") or "").startswith(VAULT_PREFIX)}
         legacy_by_title: dict[str, dict[str, Any]] = {}
@@ -153,8 +167,15 @@ class WikiSyncService:
                 result["failed"] += 1
 
         # Trang đã bị xoá khỏi wiki -> xoá note tương ứng (chỉ note mang dấu "vault:").
-        for source, note in by_source.items():
-            if source not in seen:
+        gone = {s: n for s, n in by_source.items() if s not in seen and s[len(VAULT_PREFIX):] not in unreadable}
+        # Van an toàn: vault rỗng/chưa tải xong, hoặc sắp xoá quá nhiều cùng lúc thì nhiều khả năng Drive đang đồng bộ dở chứ
+        # không phải người dùng xoá thật — giữ nguyên và báo trong kết quả.
+        if gone and (not pages or len(gone) > max(3, len(by_source) * 0.3)):
+            logger.warning("Bỏ qua việc xoá %d note vì vault có vẻ chưa đồng bộ đủ (%d trang đọc được)", len(gone), len(pages))
+            result["skipped_delete"] = len(gone)
+            gone = {}
+        for source, note in gone.items():
+            if True:
                 try:
                     self.admin.delete_note(note["id"])
                     result["deleted"] += 1

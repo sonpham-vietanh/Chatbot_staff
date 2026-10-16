@@ -194,9 +194,9 @@ def test_profile_merges_hr_data_with_self_edited_fields():
     assert profile["display_name"] == "Nguyễn Thị Lan" and profile["manager"]["display_name"] == "Trần Quản Lý"
     assert profile["in_directory"] and profile["has_team"] is False and profiles.get("mgr@truongvietanh.com")["has_team"] is True
     profiles.update_self("lan@truongvietanh.com", {"phone": " 0901 234 567 ", "bio": "Phụ trách tuyển dụng"})
-    profiles.update_self("lan@truongvietanh.com", {"phone": "0909"})                 # lần 2: chỉ đổi phone, bio giữ nguyên, không tạo dòng mới
+    profiles.update_self("lan@truongvietanh.com", {"phone": "0909123456"})                 # lần 2: chỉ đổi phone, bio giữ nguyên, không tạo dòng mới
     assert profiles.get("lan@truongvietanh.com")["bio"] == "Phụ trách tuyển dụng"
-    assert len(client.tables["staff_profiles"]) == 1 and profiles.get("lan@truongvietanh.com")["phone"] == "0909"
+    assert len(client.tables["staff_profiles"]) == 1 and profiles.get("lan@truongvietanh.com")["phone"] == "0909123456"
     outsider = profiles.get("khac@truongvietanh.com")
     assert outsider["in_directory"] is False and outsider["display_name"] is None and outsider["tenure"] is None
 
@@ -279,9 +279,11 @@ def test_api_full_wig_flow_and_permissions(http):
 
 def test_api_profile_and_points(http):
     api, _, _, _ = http
-    assert api.put("/api/me/profile", json={"phone": "0901", "bio": "Xin chào"}).status_code == 200
+    assert api.put("/api/me/profile", json={"bio": "chưa đồng ý"}).status_code == 403  # chưa consent thì server từ chối
+    assert api.post("/api/me/profile/consent").status_code == 200
+    assert api.put("/api/me/profile", json={"phone": "0901234567", "bio": "Xin chào"}).status_code == 200
     profile = api.get("/api/me/profile").json()
-    assert profile["display_name"] == "Nguyễn Thị Lan" and profile["phone"] == "0901" and profile["tenure"] and profile["points"]["total"] == 0
+    assert profile["display_name"] == "Nguyễn Thị Lan" and profile["phone"] == "0901234567" and profile["tenure"] and profile["points"]["total"] == 0
     assert api.put("/api/me/profile", json={"bio": "x" * 501}).status_code == 422
 
 
@@ -332,9 +334,10 @@ def test_missing_migration_gives_a_clear_503_not_a_crash(http):
 def test_expanded_profile_fields_are_saved_partially_validated_and_private_to_the_owner(http):
     api, state, _, client = http
     client.tables["employee_directory"][0].update(employee_code="NV001", level_name="Chuyên viên", contract_type="Hợp đồng 12 tháng")
-    full = {"phone": "0901", "zalo": "0901 zalo", "birth_date": "1995-05-20", "gender": "nu", "address": "Quận 1, TP.HCM",
+    full = {"phone": "0901234567", "zalo": "0901 zalo", "birth_date": "1995-05-20", "gender": "nu", "address": "Quận 1, TP.HCM",
             "education": "Cử nhân Sư phạm", "expertise": "Tuyển dụng, Excel", "bio": "Xin chào",
-            "emergency_name": "Nguyễn Văn B", "emergency_relation": "Chồng", "emergency_phone": "0902"}
+            "emergency_name": "Nguyễn Văn B", "emergency_relation": "Chồng", "emergency_phone": "0902123456"}
+    api.post("/api/me/profile/consent")
     assert api.put("/api/me/profile", json=full).status_code == 200
     profile = api.get("/api/me/profile").json()
     assert {k: profile[k] for k in full} == full
@@ -342,7 +345,7 @@ def test_expanded_profile_fields_are_saved_partially_validated_and_private_to_th
 
     assert api.put("/api/me/profile", json={"zalo": ""}).status_code == 200                      # chuỗi rỗng = xoá; các trường khác giữ nguyên
     after = api.get("/api/me/profile").json()
-    assert after["zalo"] is None and after["phone"] == "0901" and after["birth_date"] == "1995-05-20"
+    assert after["zalo"] is None and after["phone"] == "0901234567" and after["birth_date"] == "1995-05-20"
 
     for bad in ({"birth_date": "2999-01-01"}, {"birth_date": "1800-01-01"}, {"birth_date": "không phải ngày"}, {"gender": "robot"}, {"phone": "9" * 31}):
         assert api.put("/api/me/profile", json=bad).status_code == 422, bad

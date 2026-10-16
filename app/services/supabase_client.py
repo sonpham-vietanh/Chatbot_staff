@@ -35,6 +35,15 @@ class SupabaseClient:
         response.raise_for_status()
         return response.json() if returning else None
 
+    def upsert(self, table: str, rows: list[dict[str, Any]], on_conflict: str) -> None:
+        """Ghi hàng loạt trong MỘT request: dòng chưa có thì thêm, đã có (trùng `on_conflict`) thì ghi đè các cột gửi lên.
+        Mọi dòng phải có cùng tập khoá (PostgREST từ chối nếu lệch)."""
+        response = self._http.post(
+            f"{self.base_url}/rest/v1/{table}", headers=self._headers("resolution=merge-duplicates,return=minimal"),
+            params={"on_conflict": on_conflict}, json=rows, timeout=120,
+        )
+        response.raise_for_status()
+
     def update(self, table: str, params: dict[str, str], patch: dict[str, Any]) -> list[dict[str, Any]]:
         response = self._http.patch(
             f"{self.base_url}/rest/v1/{table}", headers=self._headers("return=representation"),

@@ -2,11 +2,15 @@ import datetime
 import uuid
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.services.api_key_service import normalize_origin
 
 MAX_TURN_CHARS = 2000
+UUID_PATTERN = r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+UUIDStr = Annotated[str, StringConstraints(pattern=UUID_PATTERN)]
+"""Mã (note, thread...) đi thẳng vào bộ lọc PostgREST: sai định dạng thì trả 422 ở đây thay vì thành 500 từ cơ sở dữ liệu."""
+MAX_NOTE_CHARS = 200_000
 MAX_HISTORY_ITEMS = 6
 """Số tin nhắn history thực sự được dùng làm ngữ cảnh — pipeline dùng chung hằng số này."""
 
@@ -32,7 +36,7 @@ class ChatRequest(BaseModel):
         default_factory=list,
         description=f"Chỉ {MAX_HISTORY_ITEMS} tin nhắn cuối được dùng; phần cũ hơn tự bị bỏ, không báo lỗi.",
     )
-    thread_id: str | None = None
+    thread_id: UUIDStr | None = None
 
     @field_validator("history", mode="before")
     @classmethod
@@ -53,6 +57,7 @@ class ChatResponse(BaseModel):
     grounded: bool
     citations: list[Citation] = []
     thread_id: str | None = None
+    suggestions: list[str] = []
 
 
 class SignupRequest(BaseModel):
@@ -123,7 +128,10 @@ class FeedbackStatusRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    """Chỉ những khoá gửi lên mới được ghi (exclude_unset); chuỗi rỗng = xoá giá trị."""
+    """Chỉ những khoá gửi lên mới được ghi (exclude_unset); chuỗi rỗng = xoá giá trị. Khoá lạ bị từ chối (trước đây im lặng bỏ qua
+    nhưng vẫn báo "đã lưu")."""
+    model_config = ConfigDict(extra="forbid")
+
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=30)] | None = None
     zalo: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
     birth_date: datetime.date | None = None
@@ -276,18 +284,33 @@ class SearchResult(BaseModel):
     metadata: dict[str, Any]
 
 
+CONTROL_KEEP = (chr(10), chr(9), chr(13))  # xuống dòng, tab
+DEL_CHAR = chr(127)
+
+
+def _strip_control_chars(value: Any) -> Any:
+    """Ký tự NUL và ký tự điều khiển làm Postgres từ chối cả bản ghi (500); bỏ chúng, giữ xuống dòng và tab."""
+    if isinstance(value, str):
+        return "".join(ch for ch in value if ch in CONTROL_KEEP or (ch >= " " and ch != DEL_CHAR))
+    return value
+
+
 class NoteUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    department: str
-    status: str
-    version: str
-    access_level: str
-    content: str = Field(min_length=1)
+    department: Department
+    status: NoteStatus
+    version: str = Field(max_length=50)
+    access_level: AccessLevel
+    content: str = Field(min_length=1, max_length=MAX_NOTE_CHARS)
+
+    _clean = field_validator("title", "content", "version", mode="before")(_strip_control_chars)
 
 
 class NoteCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    department: str = "Unassigned"
-    content: str = Field(min_length=1)
-    access_level: str = "staff"
-    status: str = "draft"
+    department: Department = "Unassigned"
+    content: str = Field(min_length=1, max_length=MAX_NOTE_CHARS)
+    access_level: AccessLevel = "staff"
+    status: NoteStatus = "draft"
+
+    _clean = field_validator("title", "content", mode="before")(_strip_control_chars)

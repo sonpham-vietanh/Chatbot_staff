@@ -31,6 +31,10 @@ class KnowledgeIngestService:
         self.llm = llm
         self.vector_store = vector_store
 
+    @staticmethod
+    def max_bytes() -> int:
+        return MAX_UPLOAD_BYTES
+
     def ingest(self, filename: str, content: bytes, department: str | None, title: str | None = None) -> dict[str, Any]:
         safe_name = self._safe_filename(filename)
         extension = Path(safe_name).suffix.casefold()
@@ -38,9 +42,16 @@ class KnowledgeIngestService:
             raise ValueError(f"Định dạng chưa được hỗ trợ: {extension or 'không có phần mở rộng'}")
         if len(content) > MAX_UPLOAD_BYTES:
             raise ValueError("File vượt quá giới hạn 10 MB")
+        if not content.strip():
+            raise ValueError("File rỗng")
 
         note_title = title.strip() if title and title.strip() else Path(safe_name).stem
-        extracted_text = self._extract_text(safe_name, content).strip()
+        try:
+            extracted_text = self._extract_text(safe_name, content).replace(chr(0), "").strip()
+        except ValueError:
+            raise
+        except Exception as error:  # docx/pdf hỏng, zip lạ...: báo thân thiện, không lộ chi tiết nội bộ
+            raise ValueError("Không đọc được nội dung tệp — tệp có thể bị hỏng hoặc sai định dạng.") from error
         body = extracted_text or f"File gốc: `{safe_name}`. Chờ HR bổ sung nội dung có thể tìm kiếm."
 
         duplicate = self._find_semantic_duplicate(note_title, extracted_text or body)
@@ -97,7 +108,10 @@ class KnowledgeIngestService:
     def _extract_text(self, filename: str, content: bytes) -> str:
         extension = Path(filename).suffix.casefold()
         if extension in {".md", ".txt", ".csv", ".json"}:
-            text = content.decode("utf-8-sig", errors="replace")
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError as error:  # errors="replace" từng lưu ký tự lỗi U+FFFD vào tri thức mà không báo
+                raise ValueError("Tệp văn bản phải mã hoá UTF-8 — hãy lưu lại ở dạng UTF-8 rồi tải lên.") from error
             if extension == ".md":
                 try:
                     parsed = frontmatter.loads(text)

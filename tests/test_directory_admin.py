@@ -45,6 +45,16 @@ class FakeClient:
             rows.sort(key=lambda r: str(r.get(column)), reverse=direction == "desc")
         return rows[: int(params.get("limit", 1000))]
 
+    def upsert(self, table, rows, on_conflict):
+        keys = {frozenset(row) for row in rows}
+        assert len(keys) == 1, "PostgREST yêu cầu mọi dòng có cùng tập khoá"
+        for row in rows:
+            current = next((r for r in self.tables[table] if r.get(on_conflict) == row[on_conflict]), None)
+            if current is None:
+                self.tables[table].append({"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat(), **row})
+            else:
+                current.update(row)
+
     def insert(self, table, rows, returning=True):
         out = []
         for row in rows:
@@ -131,6 +141,10 @@ def test_manager_loops_are_blocked():
     with pytest.raises(DirectoryError) as loop:                       # lan -> mgr, nên mgr -> lan là vòng lặp
         directory.update("mgr@truongvietanh.com", {"manager_email": "lan@truongvietanh.com"})
     assert loop.value.status_code == 422 and "vòng lặp" in loop.value.detail
+    with pytest.raises(DirectoryError) as unknown:                    # quản lý phải là người đã có trong danh bạ
+        directory.update("mgr@truongvietanh.com", {"manager_email": "boss@truongvietanh.com"})
+    assert unknown.value.status_code == 422 and "chưa có trong danh bạ" in unknown.value.detail
+    directory.create({"email": "boss@truongvietanh.com", "display_name": "Sếp", "department": "HR", "job_title": "Giám đốc"})
     assert directory.update("mgr@truongvietanh.com", {"manager_email": "boss@truongvietanh.com"})["manager_email"] == "boss@truongvietanh.com"
     assert client.tables["employee_directory"][1]["manager_email"] == "boss@truongvietanh.com"
 
@@ -226,20 +240,20 @@ def test_request_lifecycle_create_and_validation():
     created = requests.create("LAN@truongvietanh.com", "job_title", "  Trưởng   nhóm ", "Được bổ nhiệm")
     assert created["label"] == "Chức danh" and created["old_value"] == "Chuyên viên" and created["new_value"] == "Trưởng nhóm" and created["status"] == "pending"
     with pytest.raises(DirectoryError) as dup:
-        requests.create("lan@truongvietanh.com", "job_title", "Khác nữa")
+        requests.create("lan@truongvietanh.com", "job_title", "Khác nữa", "Cần cập nhật")
     assert dup.value.status_code == 409
     expected = [("employment_type", "co_huu"), ("email", "x@x.com"), ("manager_email", "a@b.com"), ("active", "false"), ("employee_code", "1"),
                 ("contract_type", "x"), ("level_name", "x"), ("employment_end_date", "2026-01-01"), ("job_title", ""), ("job_title", "x" * 101),
                 ("employment_start_date", "15/01/2024"), ("job_title", "Chuyên viên"), ("subjects", "x" * 201), ("campus", "ok")]
     for field, value in expected[:-1]:
         with pytest.raises(DirectoryError) as error:
-            requests.create("lan@truongvietanh.com", field, value)
+            requests.create("lan@truongvietanh.com", field, value, "Cần cập nhật")
         assert error.value.status_code == 422, (field, value)
     with pytest.raises(DirectoryError) as nobody:
-        requests.create("ghost@truongvietanh.com", "campus", "ok")
+        requests.create("ghost@truongvietanh.com", "campus", "ok", "Cần cập nhật")
     assert nobody.value.status_code == 404
     with pytest.raises(DirectoryError) as inactive:
-        requests.create("off@truongvietanh.com", "campus", "ok")
+        requests.create("off@truongvietanh.com", "campus", "ok", "Cần cập nhật")
     assert inactive.value.status_code == 404
     assert len(client.tables["profile_change_requests"]) == 1
     assert set(REQUESTABLE_FIELDS) == {"display_name", "job_title", "department", "campus", "work_phone", "employment_start_date",
@@ -248,7 +262,7 @@ def test_request_lifecycle_create_and_validation():
 
 def test_cancel_only_by_owner_and_only_while_pending():
     _, requests, client = make()
-    created = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn")
+    created = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn", "Cần cập nhật")
     with pytest.raises(DirectoryError) as stranger:
         requests.cancel("mgr@truongvietanh.com", created["id"])
     assert stranger.value.status_code == 403 and client.tables["profile_change_requests"][0]["status"] == "pending"
@@ -259,12 +273,12 @@ def test_cancel_only_by_owner_and_only_while_pending():
     with pytest.raises(DirectoryError) as again:
         requests.cancel("lan@truongvietanh.com", created["id"])
     assert again.value.status_code == 409
-    assert requests.create("lan@truongvietanh.com", "campus", "Thái Sơn")["status"] == "pending"      # huỷ xong gửi lại được
+    assert requests.create("lan@truongvietanh.com", "campus", "Thái Sơn", "Cần cập nhật")["status"] == "pending"      # huỷ xong gửi lại được
 
 
 def test_approve_applies_value_to_directory_and_audits():
     directory, requests, client = make()
-    created = requests.create("lan@truongvietanh.com", "employment_start_date", "2023-12-01")
+    created = requests.create("lan@truongvietanh.com", "employment_start_date", "2023-12-01", "Cần cập nhật")
     done = requests.approve(created["id"], "Đã đối chiếu hợp đồng")
     assert done["status"] == "approved" and done["review_note"] == "Đã đối chiếu hợp đồng"
     assert directory.get("lan@truongvietanh.com")["employment_start_date"] == "2023-12-01"
@@ -279,7 +293,7 @@ def test_approve_applies_value_to_directory_and_audits():
 
 def test_approve_is_refused_when_data_changed_since_the_request():
     directory, requests, client = make()
-    created = requests.create("lan@truongvietanh.com", "job_title", "Trưởng nhóm")
+    created = requests.create("lan@truongvietanh.com", "job_title", "Trưởng nhóm", "Cần cập nhật")
     directory.update("lan@truongvietanh.com", {"job_title": "Phó phòng"})
     with pytest.raises(DirectoryError) as stale:
         requests.approve(created["id"])
@@ -290,7 +304,7 @@ def test_approve_is_refused_when_data_changed_since_the_request():
 
 def test_reject_requires_a_reason_and_leaves_directory_untouched():
     directory, requests, client = make()
-    created = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn")
+    created = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn", "Cần cập nhật")
     for blank in (None, "", "   "):
         with pytest.raises(DirectoryError) as error:
             requests.reject(created["id"], blank)
@@ -306,8 +320,8 @@ def test_reject_requires_a_reason_and_leaves_directory_untouched():
 
 def test_admin_list_counts_pending_and_joins_names():
     _, requests, _ = make()
-    first = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn")
-    requests.create("mgr@truongvietanh.com", "campus", "Nhân Lễ")
+    first = requests.create("lan@truongvietanh.com", "campus", "Thái Sơn", "Cần cập nhật")
+    requests.create("mgr@truongvietanh.com", "campus", "Nhân Lễ", "Cần cập nhật")
     requests.reject(first["id"], "Không đúng")
     pending = requests.admin_list("pending")
     assert pending["pending_count"] == 1 and [i["display_name"] for i in pending["items"]] == ["Trần Quản Lý"]
@@ -323,7 +337,7 @@ def test_consent_keeps_the_first_timestamp_and_creates_the_row_if_missing():
     first = profiles.give_consent("Lan@truongvietanh.com")
     assert profiles.give_consent("lan@truongvietanh.com") == first
     assert len(client.tables["staff_profiles"]) == 1 and client.tables["staff_profiles"][0]["consent_at"] == first
-    profiles.update_self("lan@truongvietanh.com", {"phone": "0901"})                # đã có dòng: vẫn giữ mốc cũ
+    profiles.update_self("lan@truongvietanh.com", {"phone": "0901234567"})                # đã có dòng: vẫn giữ mốc cũ
     assert profiles.give_consent("lan@truongvietanh.com") == first
 
 
@@ -342,8 +356,8 @@ def test_self_update_audit_records_field_names_only_never_values():
 def test_profile_exposes_new_hr_fields_requestable_fields_and_own_requests():
     directory, requests, client = make()
     directory.update("lan@truongvietanh.com", {"employment_type": "co_huu", "team_name": "Tổ Toán", "subjects": "Toán", "grade_levels": "Khối 6", "extra_roles": "Chủ nhiệm 6A"})
-    requests.create("lan@truongvietanh.com", "campus", "Thái Sơn")
-    requests.create("mgr@truongvietanh.com", "campus", "Nhân Lễ")
+    requests.create("lan@truongvietanh.com", "campus", "Thái Sơn", "Cần cập nhật")
+    requests.create("mgr@truongvietanh.com", "campus", "Nhân Lễ", "Cần cập nhật")
     profile = ProfileService(client).get("lan@truongvietanh.com")
     assert (profile["employment_type"], profile["employment_type_label"], profile["team_name"], profile["subjects"]) == ("co_huu", "Cơ hữu", "Tổ Toán", "Toán")
     assert (profile["grade_levels"], profile["extra_roles"], profile["consent_at"]) == ("Khối 6", "Chủ nhiệm 6A", None)
@@ -410,16 +424,16 @@ def test_api_change_request_flow_end_to_end(http):
     created = api.post("/api/me/change-requests", json={"field": "campus", "new_value": "Thái Sơn", "reason": "Điều chuyển"})
     assert created.status_code == 200 and created.json()["label"] == "Cơ sở" and created.json()["status"] == "pending"
     request_id = created.json()["id"]
-    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "Nhân Lễ"}).status_code == 409
-    assert api.post("/api/me/change-requests", json={"field": "employee_code", "new_value": "NV9"}).status_code == 422
-    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "Việt Anh"}).status_code == 422
+    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "Nhân Lễ", "reason": "Cần cập nhật"}).status_code == 409
+    assert api.post("/api/me/change-requests", json={"field": "employee_code", "new_value": "NV9", "reason": "Cần cập nhật"}).status_code == 422
+    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "Việt Anh", "reason": "Cần cập nhật"}).status_code == 422
     assert api.get("/api/me/change-requests").json()["items"][0]["id"] == request_id
     assert api.get("/api/me/profile").json()["requests"][0]["id"] == request_id
 
     state["email"] = "mgr@truongvietanh.com"                                                  # người khác không huỷ được
     assert api.post(f"/api/me/change-requests/{request_id}/cancel").status_code == 403
     state["email"] = "ghost@truongvietanh.com"
-    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "x"}).status_code == 404
+    assert api.post("/api/me/change-requests", json={"field": "campus", "new_value": "x", "reason": "Cần cập nhật"}).status_code == 404
 
     pending = api.get("/api/admin/change-requests", headers=ADMIN).json()
     assert pending["pending_count"] == 1 and pending["items"][0]["display_name"] == "Nguyễn Thị Lan"
@@ -429,10 +443,10 @@ def test_api_change_request_flow_end_to_end(http):
     assert api.post(f"/api/admin/change-requests/{request_id}/approve", headers=ADMIN).status_code == 409
 
     state["email"] = "lan@truongvietanh.com"
-    second = api.post("/api/me/change-requests", json={"field": "work_phone", "new_value": "0900"}).json()
+    second = api.post("/api/me/change-requests", json={"field": "work_phone", "new_value": "0900123456", "reason": "Cần cập nhật"}).json()
     assert api.post(f"/api/admin/change-requests/{second['id']}/reject", headers=ADMIN, json={}).status_code == 422                 # thiếu lý do
     assert api.post(f"/api/admin/change-requests/{second['id']}/reject", headers=ADMIN, json={"note": "Sai số"}).json()["status"] == "rejected"
-    third = api.post("/api/me/change-requests", json={"field": "work_phone", "new_value": "0911"}).json()
+    third = api.post("/api/me/change-requests", json={"field": "work_phone", "new_value": "0911123456", "reason": "Cần cập nhật"}).json()
     assert api.post(f"/api/me/change-requests/{third['id']}/cancel").json() == {"status": "cancelled"}
     assert api.get("/api/admin/change-requests", headers=ADMIN, params={"status": "all"}).json()["pending_count"] == 0
     assert api.get("/api/admin/change-requests", headers=ADMIN, params={"status": "bogus"}).status_code == 422
@@ -443,9 +457,9 @@ def test_api_consent_and_self_update_audit(http):
     first = api.post("/api/me/profile/consent").json()["consent_at"]
     assert api.post("/api/me/profile/consent").json()["consent_at"] == first
     assert api.get("/api/me/profile").json()["consent_at"] == first
-    assert api.put("/api/me/profile", json={"phone": "0901", "bio": "Xin chào"}).status_code == 200
+    assert api.put("/api/me/profile", json={"phone": "0901234567", "bio": "Xin chào"}).status_code == 200
     log = client.tables["profile_audit_log"]
-    assert len(log) == 1 and sorted(log[0]["changes"]["fields"]) == ["bio", "phone"] and "0901" not in str(log)
+    assert len(log) == 1 and sorted(log[0]["changes"]["fields"]) == ["bio", "phone"] and "0901234567" not in str(log)
 
 
 def test_missing_migration_gives_503_for_staff_and_500_for_admin_with_the_migration_name(http):

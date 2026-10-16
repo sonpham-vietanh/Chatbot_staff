@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Any
 
-from app.services.directory_service import EMPLOYMENT_TYPES, REQUESTABLE_FIELDS
+from app.services.directory_service import EMPLOYMENT_TYPES, REQUESTABLE_FIELDS, DirectoryError, strip_control, validate_phone
 from app.services.supabase_client import SupabaseClient
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 SELF_FIELDS = {"phone": 30, "zalo": 40, "address": 300, "education": 200, "expertise": 500, "bio": 500,
                "emergency_name": 100, "emergency_relation": 60, "emergency_phone": 30}
 GENDERS = ("nam", "nu", "khac")
+PHONE_FIELDS = ("phone", "emergency_phone")
+SELF_LABELS = {"phone": "Số điện thoại", "emergency_phone": "Số điện thoại liên hệ khẩn cấp"}
+MIN_AGE_YEARS = 16
 HR_COLUMNS = "email,display_name,department,job_title,employment_start_date,manager_email,campus,work_phone,employee_code,level_name,contract_type,employment_type,team_name,extra_roles,subjects,grade_levels"
 SELF_COLUMNS = "birth_date,gender,updated_at,consent_at," + ",".join(SELF_FIELDS)
 
@@ -44,9 +47,32 @@ def tenure_text(start: str | None, today: date | None = None) -> str | None:
     return f"{rest} tháng" if rest else "dưới 1 tháng"
 
 
+def leave_entitlement(start: str | None, today: date | None = None) -> str | None:
+    """Quyền lợi phép năm theo thâm niên tính từ ngày vào công ty (quy định nghỉ phép): dưới 1 năm tính theo số tháng
+    làm việc; từ 1 năm là 12 ngày, mỗi 5 năm thâm niên cộng thêm 1 ngày. None nếu chưa có ngày vào làm."""
+    if not start:
+        return None
+    try:
+        began = date.fromisoformat(str(start)[:10])
+    except ValueError:
+        return None
+    today = today or date.today()
+    if began > today:
+        return None
+    months = max((today.year - began.year) * 12 + (today.month - began.month) - (1 if today.day < began.day else 0), 0)
+    if months < 12:
+        return f"dưới 1 năm làm việc ({months} tháng): tính theo tỷ lệ số tháng, khoảng {months} ngày phép"
+    years = months // 12
+    return f"{12 + years // 5} ngày phép/năm (thâm niên {years} năm tính từ ngày vào công ty)"
+
+
 class ProfileService:
     def __init__(self, client: SupabaseClient):
         self.client = client
+
+    def has_consent(self, email: str) -> bool:
+        rows = self.client.select("staff_profiles", {"select": "consent_at", "email": f"eq.{email.strip().casefold()}", "limit": "1"})
+        return bool(rows and rows[0].get("consent_at"))
 
     def get(self, email: str) -> dict[str, Any]:
         email = email.strip().casefold()
@@ -116,9 +142,14 @@ class ProfileService:
         patch: dict[str, Any] = {}
         for key, limit in SELF_FIELDS.items():
             if key in fields:
-                value = str(fields[key] or "").strip()
+                value = strip_control(str(fields[key] or "")).strip()
                 if len(value) > limit:
                     raise ProfileError(f"Trường {key} dài tối đa {limit} ký tự.")
+                if value and key in PHONE_FIELDS:
+                    try:
+                        validate_phone(value, SELF_LABELS[key])
+                    except DirectoryError as error:
+                        raise ProfileError(error.detail) from error
                 patch[key] = value or None
         if "gender" in fields:
             gender = (fields["gender"] or "").strip().casefold() or None
@@ -132,7 +163,8 @@ class ProfileService:
                     born = date.fromisoformat(raw[:10])
                 except ValueError as error:
                     raise ProfileError("Ngày sinh không hợp lệ.") from error
-                if born > date.today() or born.year < 1920:
+                today = date.today()
+                if born > today or born.year < 1920 or born > today.replace(year=today.year - MIN_AGE_YEARS, day=min(today.day, 28)):
                     raise ProfileError("Ngày sinh không hợp lệ.")
             patch["birth_date"] = raw[:10] or None
         patch["updated_at"] = datetime.now(timezone.utc).isoformat()

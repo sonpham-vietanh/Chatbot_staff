@@ -42,7 +42,7 @@ IMAGE_DESCRIBE_PROMPT = (
 
 class LLMProvider(ABC):
     @abstractmethod
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
         ...
 
     @abstractmethod
@@ -62,7 +62,7 @@ class MockLLMProvider(LLMProvider):
     """Provider gia lap (khong goi LLM that) - dung khi EMBEDDING_PROVIDER/LLM_PROVIDER
     chua cau hinh key that, hoac cho test khong phu thuoc mang."""
 
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
         if not contexts:
             return FALLBACK_ANSWER
         first = contexts[0]
@@ -92,10 +92,10 @@ class GeminiLLMProvider(LLMProvider):
             max_output_tokens=2000,
         )
 
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
         response = self.client.models.generate_content(
             model=self.model,
-            contents=build_prompt(question, contexts, history),
+            contents=build_prompt(question, contexts, history, asker),
             config=self.config,
         )
         answer = (response.text or "").strip()
@@ -195,8 +195,8 @@ class OpenAICompatibleLLMProvider(LLMProvider):
             raise ValueError("luồng không có nội dung")
         return "".join(parts)
 
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
-        text = self._chat([{"role": "user", "content": build_prompt(question, contexts, history)}], 2000, 0.3, 90)
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
+        text = self._chat([{"role": "user", "content": build_prompt(question, contexts, history, asker)}], 2000, 0.3, 90)
         return text or FALLBACK_ANSWER
 
     def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
@@ -277,8 +277,8 @@ class FallbackLLMProvider(LLMProvider):
                 raise self._primary_error
             raise
 
-    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None) -> str:
-        return self._call("answer", question, contexts, history)
+    def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
+        return self._call("answer", question, contexts, history, *((asker,) if asker else ()))  # chỉ truyền khi có (provider cũ nhận 3 tham số)
 
     def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
         return self._call("complete_strict", prompt, max_tokens)

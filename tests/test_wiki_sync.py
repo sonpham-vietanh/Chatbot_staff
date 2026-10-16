@@ -126,3 +126,34 @@ def test_history_failure_never_breaks_the_sync(tmp_path):
 
     result = WikiSyncService(FakeAdmin([]), str(vault), recorder=boom).sync_all()
     assert result["created"] == 1 and result["failed"] == 0
+
+
+def _vault_note(note_id, rel):
+    return {"id": note_id, "title": f"T{note_id}", "department": "HR", "content": "x", "access_level": "staff",
+            "status": "approved", "created_by": "WikiSync", "source_file": f"vault:{rel}"}
+
+
+def test_sync_keeps_notes_when_vault_is_empty_or_not_downloaded_yet(tmp_path):
+    admin = FakeAdmin([_vault_note("1", "nhan-su/wiki/a.md"), _vault_note("2", "nhan-su/wiki/b.md")])
+    result = WikiSyncService(admin, str(tmp_path / "chua-co-vault")).sync_all()
+    assert admin.deleted == [] and result["deleted"] == 0 and result["skipped_delete"] == 2
+
+
+def test_sync_does_not_delete_note_of_a_file_it_cannot_read(tmp_path):
+    vault = tmp_path / "vault"
+    write_page(vault, "nhan-su/wiki/ok.md", "OK", "Nội dung.")
+    broken = vault / "nhan-su/wiki/hong.md"
+    broken.write_text("---\ntitle: [chua dong\n---\nx", encoding="utf-8")
+    admin = FakeAdmin([_vault_note("1", "nhan-su/wiki/hong.md")])
+    WikiSyncService(admin, str(vault)).sync_all()
+    assert admin.deleted == []
+
+
+def test_sync_reads_files_with_bom(tmp_path):
+    from app.services.wiki_sync_service import collect_wiki_pages
+
+    vault = tmp_path / "vault"
+    path = vault / "nhan-su/wiki/bom.md"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\xef\xbb\xbf---\ntitle: \"Co BOM\"\n---\n\nNoi dung\n")
+    assert [p["title"] for p in collect_wiki_pages(str(vault))] == ["Co BOM"]

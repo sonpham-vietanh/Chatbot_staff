@@ -27,7 +27,7 @@ class FakeAdmin:
         return dict(rows[0])
 
     def create_note(self, title, department, content, access_level="staff", status="draft", created_by="Admin", source_file=None):
-        note = {"id": f"n{len(self.client.tables['knowledge_notes']) + 100}", "title": title, "department": department,
+        note = {"id": f"00000000-0000-0000-0000-{len(self.client.tables['knowledge_notes']) + 100:012d}", "title": title, "department": department,
                 "content": content, "access_level": access_level, "status": status, "created_by": created_by,
                 "version": "0.1", "updated_at": "now", "source_file": source_file}
         self.client.tables["knowledge_notes"].append(note)
@@ -89,10 +89,10 @@ class FakeClient:
 def make_service(admin_emails="boss@truongvietanh.com"):
     client = FakeClient()
     notes = [
-        ("n1", "Quy chế lương thưởng", "HR", "Xem [[khung-nang-luc-thang-luong]] và [[khong-co-trang-nay]]."),
-        ("n2", "Khung năng lực & thang lương", "HR", "Liên quan [[quy-che-luong-thuong]]."),
-        ("n3", "Quy trình thanh toán", "Finance", "Công tác phí."),
-        ("n4", "Ghi chú chung", "Unassigned", "Nội dung chung."),
+        ("00000000-0000-0000-0000-000000000001", "Quy chế lương thưởng", "HR", "Xem [[khung-nang-luc-thang-luong]] và [[khong-co-trang-nay]]."),
+        ("00000000-0000-0000-0000-000000000002", "Khung năng lực & thang lương", "HR", "Liên quan [[quy-che-luong-thuong]]."),
+        ("00000000-0000-0000-0000-000000000003", "Quy trình thanh toán", "Finance", "Công tác phí."),
+        ("00000000-0000-0000-0000-000000000004", "Ghi chú chung", "Unassigned", "Nội dung chung."),
     ]
     client.tables["knowledge_notes"] = [
         {"id": i, "title": t, "department": d, "content": c, "status": "approved", "access_level": "staff",
@@ -120,23 +120,23 @@ def test_leader_edits_only_own_department_and_everything_is_logged():
     leader = service.profile("hr@truongvietanh.com")
 
     editable = {n["id"]: n["editable"] for n in service.list_notes(leader)}
-    assert editable == {"n1": True, "n2": True, "n3": False, "n4": False}
+    assert editable == {"00000000-0000-0000-0000-000000000001": True, "00000000-0000-0000-0000-000000000002": True, "00000000-0000-0000-0000-000000000003": False, "00000000-0000-0000-0000-000000000004": False}
 
-    service.update_note(leader, "n1", {"content": "Mỗi năm 14 ngày phép."})
+    service.update_note(leader, "00000000-0000-0000-0000-000000000001", {"content": "Mỗi năm 14 ngày phép."})
     assert client.tables["knowledge_notes"][0]["content"] == "Mỗi năm 14 ngày phép."
     assert client.tables["knowledge_notes"][0]["reviewed_by"] == "hr@truongvietanh.com"
     assert client.tables["knowledge_note_versions"][-1]["change_kind"] == "update"
     assert client.tables["knowledge_note_versions"][-1]["changed_by"] == "hr@truongvietanh.com"
 
     with pytest.raises(ManageError) as other_dept:
-        service.update_note(leader, "n3", {"content": "x"})
+        service.update_note(leader, "00000000-0000-0000-0000-000000000003", {"content": "x"})
     assert other_dept.value.status_code == 403
     with pytest.raises(ManageError):
-        service.update_note(leader, "n1", {"department": "Finance"})      # không chuyển sang phòng khác
+        service.update_note(leader, "00000000-0000-0000-0000-000000000001", {"department": "Finance"})      # không chuyển sang phòng khác
     with pytest.raises(ManageError):
         service.create_note(leader, "Mới", "Finance", "nội dung")
     with pytest.raises(ManageError):
-        service.delete_note(leader, "n4")                                    # note Unassigned chỉ admin
+        service.delete_note(leader, "00000000-0000-0000-0000-000000000004")                                    # note Unassigned chỉ admin
     stranger = service.profile("nobody@truongvietanh.com")
     with pytest.raises(ManageError) as denied:
         service.list_notes(stranger)
@@ -146,8 +146,8 @@ def test_leader_edits_only_own_department_and_everything_is_logged():
 def test_admin_can_edit_every_department_including_unassigned():
     service, _ = make_service()
     admin = service.profile("boss@truongvietanh.com")
-    service.update_note(admin, "n4", {"title": "Ghi chú chung (đã sửa)"})
-    service.update_note(admin, "n3", {"department": "HR"})
+    service.update_note(admin, "00000000-0000-0000-0000-000000000004", {"title": "Ghi chú chung (đã sửa)"})
+    service.update_note(admin, "00000000-0000-0000-0000-000000000003", {"department": "HR"})
 
 
 def test_create_delete_and_restore_after_delete_keeps_history():
@@ -176,7 +176,7 @@ def test_content_limits_and_blank_input_rejected():
     service, _ = make_service()
     leader = service.profile("hr@truongvietanh.com")
     with pytest.raises(ManageError):
-        service.update_note(leader, "n1", {"content": "   "})
+        service.update_note(leader, "00000000-0000-0000-0000-000000000001", {"content": "   "})
     with pytest.raises(ManageError):
         service.create_note(leader, "  ", "HR", "x")
     with pytest.raises(ManageError):
@@ -186,17 +186,17 @@ def test_content_limits_and_blank_input_rejected():
 def test_links_resolve_by_slug_title_and_source_file_with_backlinks():
     service, client = make_service()
     client.tables["knowledge_notes"].append({
-        "id": "n5", "title": "Nguồn: Quy chế lương thưởng HR01", "department": "HR", "content": "Tóm tắt nguồn.",
+        "id": "00000000-0000-0000-0000-000000000005", "title": "Nguồn: Quy chế lương thưởng HR01", "department": "HR", "content": "Tóm tắt nguồn.",
         "status": "approved", "access_level": "staff", "version": "0.1", "updated_at": "now", "created_by": "WikiSync",
         "source_file": "vault:nhan-su/wiki/sources/quy-che-luong-thuong-hr01-nguon.md"})
     client.tables["knowledge_notes"][3]["content"] += " Xem [[quy-che-luong-thuong-hr01-nguon]]."
     leader = service.profile("hr@truongvietanh.com")
 
-    note = service.get_note(leader, "n1")
-    assert [l["id"] for l in note["links"]["outgoing"]] == ["n2"]
+    note = service.get_note(leader, "00000000-0000-0000-0000-000000000001")
+    assert [l["id"] for l in note["links"]["outgoing"]] == ["00000000-0000-0000-0000-000000000002"]
     assert note["links"]["unresolved"] == ["khong-co-trang-nay"]
-    assert [l["id"] for l in note["links"]["incoming"]] == ["n2"]
-    assert [l["id"] for l in service.get_note(leader, "n5")["links"]["incoming"]] == ["n4"]
+    assert [l["id"] for l in note["links"]["incoming"]] == ["00000000-0000-0000-0000-000000000002"]
+    assert [l["id"] for l in service.get_note(leader, "00000000-0000-0000-0000-000000000005")["links"]["incoming"]] == ["00000000-0000-0000-0000-000000000004"]
 
 
 def test_link_helpers():
@@ -212,7 +212,7 @@ def api():
     rag = SimpleNamespace(manage=service, auth=None, supabase=None)
     current = {"email": "hr@truongvietanh.com"}
     app.dependency_overrides[get_rag_service] = lambda: rag
-    app.dependency_overrides[get_settings] = lambda: SimpleNamespace(admin_token="admin-secret")
+    app.dependency_overrides[get_settings] = lambda: SimpleNamespace(admin_token="admin-secret", allowed_email_domains="truongvietanh.com")
     app.dependency_overrides[require_user] = lambda: {"id": "u", "email": current["email"]}
     try:
         yield TestClient(app), client, current
@@ -224,20 +224,20 @@ def test_api_flow_for_a_leader(api):
     http, client, _ = api
     assert http.get("/api/manage/me").json()["departments"] == ["HR"]
     notes = http.get("/api/manage/notes").json()
-    assert {n["id"]: n["editable"] for n in notes}["n3"] is False
-    assert [n["id"] for n in http.get("/api/manage/notes?q=công tác").json()] == ["n3"]
+    assert {n["id"]: n["editable"] for n in notes}["00000000-0000-0000-0000-000000000003"] is False
+    assert [n["id"] for n in http.get("/api/manage/notes?q=công tác").json()] == ["00000000-0000-0000-0000-000000000003"]
 
     created = http.post("/api/manage/notes", json={"title": "Quy định mới", "department": "HR", "content": "Nội dung"})
     assert created.status_code == 200
     note_id = created.json()["id"]
-    assert http.put(f"/api/manage/notes/{note_id}", json={"content": "Nội dung 2"}).status_code == 200
+    assert http.put(f"/api/manage/notes/{note_id}", json={"content": "Nội dung 2", "base_updated_at": "now"}).status_code == 200
     versions = http.get(f"/api/manage/notes/{note_id}/versions").json()
     assert [v["change_kind"] for v in versions] == ["update", "create"]
     assert http.post(f"/api/manage/notes/{note_id}/restore/khong-phai-uuid").status_code == 422
     assert http.delete(f"/api/manage/notes/{note_id}").json() == {"status": "deleted"}
     assert http.get(f"/api/manage/notes/{note_id}").status_code == 404
 
-    assert http.put("/api/manage/notes/n3", json={"content": "sửa trộm"}).status_code == 403
+    assert http.put("/api/manage/notes/00000000-0000-0000-0000-000000000003", json={"content": "sửa trộm", "base_updated_at": "now"}).status_code == 403
     assert http.post("/api/manage/notes", json={"title": "x", "department": "Finance", "content": "y"}).status_code == 403
     assert http.post("/api/manage/notes", json={"title": "x", "department": "Khác", "content": "y"}).status_code == 422
 
@@ -248,8 +248,8 @@ def test_api_denies_non_leaders_and_inactive_leaders(api):
         current["email"] = email
         assert http.get("/api/manage/me").json()["can_manage"] is False
         assert http.get("/api/manage/notes").status_code == 403
-        assert http.get("/api/manage/notes/n1").status_code == 403
-        assert http.delete("/api/manage/notes/n1").status_code == 403
+        assert http.get("/api/manage/notes/00000000-0000-0000-0000-000000000001").status_code == 403
+        assert http.delete("/api/manage/notes/00000000-0000-0000-0000-000000000001").status_code == 403
 
 
 def test_admin_manages_leaders_with_token_only(api):
@@ -259,7 +259,8 @@ def test_admin_manages_leaders_with_token_only(api):
         "email": " NEW@TruongVietAnh.com ", "display_name": "Leader tài chính", "departments": ["Finance", "Finance"]})
     assert saved.status_code == 200 and saved.json()["email"] == "new@truongvietanh.com"
     assert saved.json()["departments"] == ["Finance"]
-    assert http.put("/api/admin/leaders", headers=ADMIN_HEADERS, json={"email": "a@x.com", "departments": ["Kho"]}).status_code == 422
+    assert http.put("/api/admin/leaders", headers=ADMIN_HEADERS, json={"email": "a@truongvietanh.com", "departments": ["Kho"]}).status_code == 422
+    assert http.put("/api/admin/leaders", headers=ADMIN_HEADERS, json={"email": "ngoai@gmail.com", "departments": ["HR"]}).status_code == 422  # ngoài miền công ty
     assert http.put("/api/admin/leaders", headers=ADMIN_HEADERS, json={"email": "khong-co-a-cong", "departments": []}).status_code == 422
     assert any(l["email"] == "new@truongvietanh.com" for l in http.get("/api/admin/leaders", headers=ADMIN_HEADERS).json())
     assert http.delete("/api/admin/leaders?email=new@truongvietanh.com", headers=ADMIN_HEADERS).status_code == 200
@@ -271,7 +272,7 @@ def test_every_admin_route_rejects_requests_without_the_admin_token(api):
     admin_routes = [r for r in api_router.routes if getattr(r, "path", "").startswith("/api/admin/")]
     assert len(admin_routes) > 10  # phòng khi ai đó đổi prefix làm test này rỗng
     for route in admin_routes:
-        path = route.path.replace("{note_id}", "n1").replace("{feedback_id}", "f1").replace("{key_id}", "k1").replace("{version_id}", "v1")
+        path = route.path.replace("{note_id}", "00000000-0000-0000-0000-000000000001").replace("{feedback_id}", "f1").replace("{key_id}", "k1").replace("{version_id}", "v1")
         path = path.replace("{", "x").replace("}", "")
         for method in route.methods - {"HEAD", "OPTIONS"}:
             assert http.request(method, path).status_code in (401, 503), f"{method} {route.path} không yêu cầu admin token"
@@ -287,4 +288,4 @@ def test_stale_edit_is_rejected_instead_of_silently_overwriting(api):
     assert http.get(f"/api/manage/notes/{note_id}").json()["content"] == "bản 1"
 
     assert http.put(f"/api/manage/notes/{note_id}", json={"content": "bản 2", "base_updated_at": fresh}).status_code == 200
-    assert http.put(f"/api/manage/notes/{note_id}", json={"content": "bản 3"}).status_code == 200  # gọi API không kèm mốc vẫn dùng được
+    assert http.put(f"/api/manage/notes/{note_id}", json={"content": "bản 3"}).status_code == 422  # thiếu mốc phiên bản: từ chối, tránh ghi đè im lặng

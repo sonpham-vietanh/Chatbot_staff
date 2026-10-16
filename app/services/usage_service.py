@@ -61,7 +61,10 @@ def parse_time(value: str | None, name: str) -> datetime | None:
         raise ReportQueryError(f"Tham số {name} phải là ISO 8601 có múi giờ, ví dụ 2026-10-04T00:00:00+07:00.") from error
     if parsed.tzinfo is None:
         raise ReportQueryError(f"Tham số {name} thiếu múi giờ (ví dụ +07:00 hoặc Z).")
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError) as error:  # ngày sát mốc 9999-12-31 kèm múi giờ lệch: vượt giới hạn datetime
+        raise ReportQueryError(f"Tham số {name} nằm ngoài khoảng thời gian hỗ trợ.") from error
 
 
 def to_vn(value: str | None) -> str | None:

@@ -1,6 +1,9 @@
+import difflib
 import logging
 import re
+import threading
 import unicodedata
+from datetime import datetime
 from typing import Any
 
 from app.config import Settings
@@ -8,7 +11,9 @@ from app.models.schemas import MAX_HISTORY_ITEMS
 from app.rag.answer_format import clean_markdown, to_plain_text
 from app.rag.embeddings import ZeroEmbeddingProvider, build_embedding_provider
 from app.rag.lexical_store import LexicalStore, fold
-from app.rag.prompt_builder import FALLBACK_ANSWER, MISSING_DOC_RE, build_condense_prompt
+from app.rag.prompt_builder import (
+    FALLBACK_ANSWER, MISSING_DOC_RE, OFF_TOPIC_ANSWER, VN_TZ, WEEKDAYS, build_condense_prompt,
+)
 from app.rag.vector_store import VectorStore
 from app.services.admin_service import AdminService
 from app.services.analytics_service import AnalyticsService
@@ -40,6 +45,26 @@ NO_DOCUMENT_QUESTION = re.compile(
     rf"|(?:cam on|thanks|thank you|ok|oke)(?:\s+(?:ban|bot|nhe|nha|nhieu|rat nhieu))*{_END})")
 """Chỉ khớp ĐÚNG câu ngày giờ / chào hỏi / cảm ơn (đã bỏ dấu, không kèm nội dung khác): kết quả từ khoá yếu là bình thường,
 không cần nhờ mô hình mở rộng từ khoá. Câu có thêm nội dung ("chào, nghỉ phép mấy ngày") không khớp nên vẫn được mở rộng."""
+GREETING_RE = re.compile(rf"^\s*(?:xin chao|chao|hello|hi|alo)(?:\s+(?:ban|bot|tro ly|em|anh|chi|ad|admin))?{_END}")
+THANKS_RE = re.compile(rf"^\s*(?:cam on|thanks|thank you|ok|oke)(?:\s+(?:ban|bot|nhe|nha|nhieu|rat nhieu))*{_END}")
+DATE_RE = re.compile(rf"^\s*(?:hom nay|hien nay|bay gio|hien tai)\s+(?:la\s+)?(?:ngay|thu|thang|nam|may gio){_FILLER}{_END}")
+"""Chào hỏi / cảm ơn / hỏi ngày giờ trả lời ngay, không gọi mô hình: nhanh (không xếp hàng sau các câu hỏi nặng) và
+không bao giờ tạo note "cần bổ sung"."""
+JUNK_QUESTION = re.compile(
+    r"ignore (?:all |the )?(?:previous|above)|system prompt|api[\s_-]?key|mat khau|password|drop table|<script|bo qua (?:moi )?huong dan",
+    re.IGNORECASE)
+"""Câu dò prompt / tấn công / rác: không đáng để HR bổ sung tài liệu nên không tạo note nháp."""
+SYNONYM_RULES = (
+    (re.compile(r"\b(?:luong )?thang 13\b"), "thưởng Tết thưởng cuối năm"),
+    (re.compile(r"\bbhxh\b|\bbao hiem\b"), "bảo hiểm xã hội BHXH thử việc hợp đồng lao động chính thức"),
+    (re.compile(r"\b(?:bao ai|bao cho ai|xin nghi (?:1|mot) ngay)\b"), "xin nghỉ phép email Leader cc HR trước 48 giờ"),
+    (re.compile(r"\b(?:bao nhieu|may|nhung|cac|nao) co so\b|\bco so nao\b"), "các cơ sở địa chỉ cơ sở Việt Anh Phan Huy Ích Nguyễn Trọng Tuyển Bình Tân"),
+    (re.compile(r"\bnotice period\b|\bresign"), "báo trước nghỉ việc 45 ngày 30 ngày 3 ngày làm việc hợp đồng"),
+    (re.compile(r"\bannual leave\b|\bleave days\b"), "nghỉ phép năm số ngày phép thâm niên"),
+    (re.compile(r"\bmaternity\b|\bparental\b"), "thai sản sinh con nghỉ"),
+    (re.compile(r"\bprobation"), "thử việc 85% lương"),
+    (re.compile(r"\bsalary\b|\bbonus\b"), "lương thưởng"),
+)
 KEYWORD_PROMPT = (
     "Bạn giúp tìm tài liệu nhân sự nội bộ của một trường học ở Việt Nam. Từ câu hỏi bên dưới, viết 8–14 từ khoá hoặc cụm từ "
     "tiếng Việt (có dấu) KHÁC NHAU mà tài liệu liên quan có thể dùng: đồng nghĩa, thuật ngữ nhân sự, tên loại tài liệu "
@@ -146,11 +171,22 @@ class AdvancedRAGPipeline:
     def retrieve(self, question: str, history: list[dict] | None = None) -> list[dict[str, Any]]:
         """Tim kiem KHONG loc theo phong ban - moi nhan vien deu co quyen biet toan bo
         noi dung da duoc duyet vao wiki (chinh sach cua truong, khong phai gioi han ky thuat)."""
-        standalone = self._standalone_question(question, history)
+        return self._retrieve_standalone(self._standalone_question(question, history))
+
+    def _retrieve_standalone(self, standalone: str) -> list[dict[str, Any]]:
+        standalone = self._with_synonyms(standalone)
         results = self.vector_store.search(standalone, self.settings.top_k)
         if self.lexical and (not results or results[0]["score"] < WEAK_LEXICAL_SCORE) and not NO_DOCUMENT_QUESTION.match(fold(standalone)):
             results = self._expand_and_merge(standalone, results)
         return results
+
+    @staticmethod
+    def _with_synonyms(query: str) -> str:
+        """Bổ sung từ khoá đồng nghĩa cho cách hỏi thường gặp mà tài liệu diễn đạt khác (nhân viên hỏi "lương tháng 13" nhưng tài liệu gọi là
+        thưởng Tết / thưởng cuối năm; hỏi tiếng Anh...). Chỉ thêm khi khớp, nên câu bình thường không bị thay đổi."""
+        folded = fold(query)
+        extra = [words for pattern, words in SYNONYM_RULES if pattern.search(folded)]
+        return f"{query} {' '.join(extra)}" if extra else query
 
     def _expand_and_merge(self, query: str, first: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Kết quả từ khoá đầu yếu (người dùng diễn đạt khác hẳn tài liệu): nhờ mô hình đưa thêm từ khoá/đồng nghĩa rồi
@@ -186,17 +222,39 @@ class AdvancedRAGPipeline:
         filters = {"user_department": department} if department else None
         return self.vector_store.search(question, self.settings.top_k, filters)
 
+    @staticmethod
+    def _quick_reply(question: str) -> str | None:
+        """Trả lời tức thì cho chào hỏi / cảm ơn / hỏi ngày giờ (xem GREETING_RE)."""
+        folded = fold(question)
+        if GREETING_RE.match(folded):
+            return ("Chào bạn! Mình là trợ lý nội bộ của Trường Việt Anh. Bạn cần hỏi về nhân sự, chính sách, lương thưởng, "
+                    "nghỉ phép hay WIG của mình thì cứ nhắn nhé.")
+        if THANKS_RE.match(folded):
+            return "Không có gì! Cần hỏi thêm gì bạn cứ nhắn mình nhé."
+        if DATE_RE.match(folded):
+            now = datetime.now(VN_TZ)
+            today = f"Hôm nay là {WEEKDAYS[now.weekday()]}, ngày {now.day:02d}/{now.month:02d}/{now.year}."
+            if "gio" in folded:
+                return f"Mình không xem được đồng hồ nên chưa biết giờ hiện tại. {today}"
+            return today
+        return None
+
     def chat(self, question: str, history: list[dict] | None = None,
-             asker_department: str | None = None) -> dict[str, Any]:
+             asker_department: str | None = None, asker: str | None = None) -> dict[str, Any]:
+        quick = self._quick_reply(question)
+        if quick is not None:
+            return {"answer": quick, "grounded": False, "citations": []}
         history = (history or [])[-MAX_HISTORY_ITEMS:]
         results = self.retrieve(question, history)
         grounded_seeds = [item for item in results if item["score"] >= self.settings.min_relevance_score]
-        # Chỉ đưa CONTEXT vào prompt khi retrieval thực sự vượt ngưỡng tin cậy; nếu không,
-        # để LLM tự quyết định giữa trả lời giao tiếp thông thường hoặc từ chối theo prompt guardrail.
-        context_for_llm = results if grounded_seeds else []
+        # Chỉ đưa vào prompt đúng những đoạn đã vượt ngưỡng tin cậy (không phải cả top_k=20) —
+        # đoạn dưới ngưỡng vốn đã bị hệ thống coi là "chưa đủ liên quan" ở chỗ khác (grounded_seeds),
+        # đưa cả vào prompt chỉ làm prompt dài hơn (chậm sinh câu trả lời) mà không thêm độ tin cậy.
+        context_for_llm = grounded_seeds
         # Chuẩn hoá Unicode về dạng dựng sẵn (NFC): model đôi khi trả tiếng Việt dạng tổ hợp,
         # khi đó "Nguồn"/câu từ chối không khớp chuỗi so sánh dù nhìn giống hệt.
-        answer = unicodedata.normalize("NFC", self.llm.answer(question, context_for_llm, history))
+        raw_answer = self.llm.answer(question, context_for_llm, history, asker) if asker else self.llm.answer(question, context_for_llm, history)
+        answer = unicodedata.normalize("NFC", raw_answer)
         # Dòng [Nguồn: ...] luôn bị tách khỏi text hiển thị (citation trả về ở trường riêng),
         # và định dạng luôn được làm sạch ở đây — không để từng giao diện tự xử lý.
         missing_docs = bool(MISSING_DOC_RE.search(answer))
@@ -204,23 +262,50 @@ class AdvancedRAGPipeline:
         display_answer = clean_markdown(self._strip_citation_tags(answer))
         # So khớp trên văn bản thuần: model đôi khi bọc câu từ chối trong **...** hoặc kèm
         # dòng nguồn; rỗng (chỉ có dòng nguồn) cũng coi như không trả lời được.
-        if to_plain_text(display_answer) in ("", FALLBACK_ANSWER) or missing_docs:
-            try:
-                self.admin.create_note(
-                    title=f"[CẦN BỔ SUNG] {question[:150]}",  # tiêu đề tối đa 200 ký tự khi lưu ở /admin
-                    department=asker_department or "Unassigned",
-                    content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
-                    status="draft",
-                    created_by="AI_Bot",
-                )
-            except Exception:
-                # Note "cần bổ sung" chỉ là ghi nhận cho HR — ghi lỗi thì người hỏi vẫn phải
-                # nhận được câu từ chối bình thường, không phải lỗi 502.
-                logger.warning("Không tạo được note [CẦN BỔ SUNG] cho câu hỏi: %s", question, exc_info=True)
-            if to_plain_text(display_answer) in ("", FALLBACK_ANSWER):
-                return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
+        plain = to_plain_text(display_answer)
+        if to_plain_text(OFF_TOPIC_ANSWER)[:60] in plain:
+            # Câu ngoài chủ đề: từ chối nhẹ nhàng (có thể kèm 1–2 câu đồng cảm ở đầu), KHÔNG tạo note nháp cho HR.
+            return {"answer": display_answer, "grounded": False, "citations": []}
+        is_fallback = plain in ("", FALLBACK_ANSWER)
         citations = self._parse_citations(answer, results) if grounded_seeds else []
+        # Chỉ báo HR bổ sung tài liệu khi thật sự thiếu: không có câu trả lời, hoặc mô hình báo thiếu mà không dẫn được nguồn nào.
+        # Đã trả lời được bằng tài liệu (dù thiếu chi tiết phụ) thì không tạo note để hàng đợi HR không bị nhiễu.
+        if (is_fallback or (missing_docs and not citations)) and self._worth_recording(question):
+            self._spawn(self._record_missing_doc, question, history, asker_department)
+        if is_fallback:
+            return {"answer": FALLBACK_ANSWER, "grounded": False, "citations": []}
         return {"answer": display_answer, "grounded": bool(citations), "citations": citations}
+
+    @staticmethod
+    def _spawn(target, *args) -> None:
+        """Chạy việc phụ ở luồng nền (tách riêng để test chạy đồng bộ được)."""
+        threading.Thread(target=target, args=args, daemon=True).start()
+
+    @staticmethod
+    def _worth_recording(question: str) -> bool:
+        folded = fold(question)
+        return len(folded) >= 8 and len(folded.split()) >= 2 and not JUNK_QUESTION.search(folded)             and not NO_DOCUMENT_QUESTION.match(folded)
+
+    def _record_missing_doc(self, question: str, history: list[dict] | None, asker_department: str | None) -> None:
+        """Chạy ở luồng nền (xem chat()) — lỗi ghi chỉ cần log lại cho HR biết mà sửa,
+        không có đường nào trả lỗi về cho người hỏi vì câu trả lời đã trả về rồi."""
+        try:
+            # Câu nối tiếp ("Còn giám thị?") phải được viết lại đầy đủ, nếu không HR đọc không hiểu hỏi gì.
+            question = self._standalone_question(question, history)
+            title = f"[CẦN BỔ SUNG] {question[:150]}"  # tiêu đề tối đa 200 ký tự khi lưu ở /admin
+            # Cùng một câu hỏi được hỏi nhiều lần chỉ cần một bản nháp.
+            existing = self.supabase.select("knowledge_notes", {"select": "id", "title": f"eq.{title}", "limit": "1"})
+            if existing:
+                return
+            self.admin.create_note(
+                title=title,
+                department=asker_department or "Unassigned",
+                content=f"# Câu hỏi chưa có câu trả lời được duyệt\n\n{question}",
+                status="draft",
+                created_by="AI_Bot",
+            )
+        except Exception:
+            logger.warning("Không tạo được note [CẦN BỔ SUNG] cho câu hỏi: %s", question, exc_info=True)
 
     @staticmethod
     def _retrieval_query(question: str, history: list[dict] | None) -> str:
@@ -350,6 +435,11 @@ class AdvancedRAGPipeline:
             if not parts or not parts[0]:
                 continue
             source, rest = parts[0], [part for part in parts[1:] if part]
+            known_sources = {entry[0] for entry in known}
+            if source not in known_sources:  # mô hình đôi khi viết sai tên nguồn ("Quy quy trình...") -> lấy tên thật gần nhất
+                close = difflib.get_close_matches(source, known_sources, n=1, cutoff=0.75)
+                if close:
+                    source = close[0]
             cited = " > ".join(rest)
             match = next(
                 (entry for entry in known if entry[0] == source

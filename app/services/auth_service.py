@@ -72,16 +72,28 @@ class AuthService:
         return self._parse(response)
 
     def get_user(self, access_token: str) -> dict:
-        response = self._http.get(
-            f"{self.base_url}/auth/v1/user",
-            headers={**self._headers(), "Authorization": f"Bearer {access_token}"},
-            timeout=15,
-        )
+        try:
+            response = self._http.get(
+                f"{self.base_url}/auth/v1/user",
+                headers={**self._headers(), "Authorization": f"Bearer {access_token}"},
+                timeout=15,
+            )
+        except httpx.HTTPError as error:
+            raise AuthError(503, "Không kết nối được dịch vụ xác thực") from error
         return self._parse(response)
 
     @staticmethod
     def _parse(response: httpx.Response) -> dict:
-        body = response.json() if response.content else {}
+        try:
+            body = response.json() if response.content else {}
+        except ValueError:  # trang lỗi HTML của proxy/Supabase thay vì JSON
+            body = {}
+            if response.status_code < 400:
+                raise AuthError(503, "Dịch vụ xác thực trả dữ liệu không hợp lệ")
+        if not isinstance(body, dict):
+            body = {}
+        if response.status_code >= 500:
+            raise AuthError(503, "Dịch vụ xác thực tạm thời không phản hồi")
         if response.status_code >= 400:
             detail = body.get("error_description") or body.get("msg") or body.get("error") or "Yêu cầu xác thực thất bại"
             raise AuthError(response.status_code, detail)

@@ -354,7 +354,7 @@ def test_chat_feedback_and_manage_actions_are_tracked(env):
     assert http.post("/api/chat-staff", json={"question": "nghỉ phép?"}).status_code == 200
     assert http.post("/api/feedback", json={"question": "q", "answer": "a", "reason": "wrong_info"}).status_code == 200
     created = http.post("/api/manage/notes", json={"title": "Quy định X", "department": "HR", "content": "nội dung"}).json()["id"]
-    assert http.put(f"/api/manage/notes/{created}", json={"content": "đã sửa"}).status_code == 200
+    assert http.put(f"/api/manage/notes/{created}", json={"content": "đã sửa", "base_updated_at": "now"}).status_code == 200
     assert http.delete(f"/api/manage/notes/{created}").status_code == 200
     features = [(f, who) for f, who, _ in recorder.events]
     assert features == [("hoi_dap", "hr@truongvietanh.com"), ("bao_sai", "hr@truongvietanh.com"), ("tao_tri_thuc", "hr@truongvietanh.com"),

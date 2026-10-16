@@ -43,7 +43,8 @@ DIRECTORY_COLUMNS = "email,display_name,department,job_title,employment_start_da
                     "employee_code,level_name,contract_type,employment_type,team_name,extra_roles,subjects,grade_levels,created_at,updated_at"
 MAX_IMPORT_ROWS = 1000
 MAX_SCAN_ROWS = 5000
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = re.compile(r"^[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$")
+"""Chỉ ký tự an toàn: dấu phẩy, ngoặc, chữ có dấu trong email làm hỏng bộ lọc in.(...) của PostgREST ở các truy vấn khác."""
 _TYPE_LOOKUP = {**{code: code for code in EMPLOYMENT_TYPES}, **{fold(label): code for code, label in EMPLOYMENT_TYPES.items()}}
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -57,6 +58,21 @@ class DirectoryError(Exception):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()-]{5,28}[0-9]$")
+
+
+def strip_control(value: str) -> str:
+    """Bỏ ký tự điều khiển (kể cả NUL — Postgres từ chối cả bản ghi nếu có), giữ xuống dòng và tab."""
+    return "".join(ch for ch in value if ch in (chr(10), chr(9)) or (ch >= " " and ch != chr(127)))
+
+
+def validate_phone(value: str, label: str = "Số điện thoại") -> str:
+    digits = sum(ch.isdigit() for ch in value)
+    if not PHONE_RE.match(value) or not 8 <= digits <= 15:
+        raise DirectoryError(422, f"{label} không hợp lệ (chỉ gồm chữ số, có thể có dấu +, khoảng trắng, dấu chấm hoặc gạch ngang).")
+    return value
 
 
 def _text(value: Any) -> str:
@@ -98,7 +114,7 @@ def clean_fields(payload: dict[str, Any], *, allow_clear: bool, ignore_blank: bo
     for key, raw in payload.items():
         if key not in EDITABLE_FIELDS:
             continue
-        value = " ".join(_text(raw).split())
+        value = " ".join(strip_control(_text(raw)).split())
         if not value:
             if ignore_blank:
                 continue
@@ -110,6 +126,8 @@ def clean_fields(payload: dict[str, Any], *, allow_clear: bool, ignore_blank: bo
         if key in TEXT_LIMITS:
             if len(value) > TEXT_LIMITS[key]:
                 raise DirectoryError(422, f"{field_label(key)} dài tối đa {TEXT_LIMITS[key]} ký tự.")
+            if key == "work_phone":
+                validate_phone(value, field_label(key))
             out[key] = value
         elif key in DATE_FIELDS:
             out[key] = parse_date(value, field_label(key))
@@ -193,11 +211,13 @@ class DirectoryService:
         rows = self.client.select("employee_directory", {"select": "email,manager_email", "limit": str(MAX_SCAN_ROWS)})
         return {r["email"]: r.get("manager_email") for r in rows}
 
-    def _check_manager(self, email: str, manager: str | None, managers: dict[str, str | None]) -> None:
+    def _check_manager(self, email: str, manager: str | None, managers: dict[str, str | None], known: set[str] | None = None) -> None:
         if not manager:
             return
         if manager == email:
             raise DirectoryError(422, "Quản lý trực tiếp không được là chính người đó.")
+        if manager not in managers and manager not in (known or ()):
+            raise DirectoryError(422, f"Quản lý trực tiếp {manager} chưa có trong danh bạ — hãy thêm người này trước.")
         if self._creates_cycle(email, manager, managers):
             raise DirectoryError(422, "Quản lý trực tiếp tạo vòng lặp trong sơ đồ quản lý.")
 
@@ -211,7 +231,12 @@ class DirectoryService:
         if self.get(email):
             raise DirectoryError(409, f"Email {email} đã có trong danh bạ.")
         self._check_manager(email, fields.get("manager_email"), self._managers() if fields.get("manager_email") else {})
-        rows = self.client.insert("employee_directory", [{"email": email, **fields, "active": True}])
+        try:
+            rows = self.client.insert("employee_directory", [{"email": email, **fields, "active": True}])
+        except Exception as error:
+            if "23505" in str(error) or "duplicate" in str(error).casefold():  # hai yêu cầu tạo cùng email đồng thời
+                raise DirectoryError(409, f"Email {email} đã có trong danh bạ.") from error
+            raise
         row = (rows or [{"email": email, **fields, "active": True}])[0]
         self.audit(email, "admin", "create", {k: {"old": None, "new": v} for k, v in fields.items()})
         return row
@@ -257,6 +282,7 @@ class DirectoryService:
         existing = {r["email"]: r for r in existing_rows}
         managers = {email: r.get("manager_email") for email, r in existing.items()}
         seen: set[str] = set()
+        known = set(existing) | {normalize_email((raw or {}).get("email") or next((v for k, v in (raw or {}).items() if str(k).strip().casefold() == "email"), "")) for raw in rows}
         errors: list[dict[str, Any]] = []
         preview: list[dict[str, Any]] = []
         creates: list[tuple[int, str, dict[str, Any]]] = []
@@ -281,7 +307,7 @@ class DirectoryService:
                     missing = [field_label(k) for k in REQUIRED_FIELDS if not fields.get(k)]
                     if missing:
                         raise DirectoryError(422, "Người mới thiếu: " + ", ".join(missing) + ".")
-                self._check_manager(email, fields.get("manager_email"), managers)
+                self._check_manager(email, fields.get("manager_email"), managers, known)
             except DirectoryError as error:
                 fail(number, email_raw, error.detail)
                 continue
@@ -300,14 +326,23 @@ class DirectoryService:
                 updates.append((number, email, changes, {k: c["new"] for k, c in changes.items()}))
                 preview.append({"row": number, "email": email, "action": "update", "changes": changes})
 
-        if not dry_run:
-            if creates:
-                self.client.insert("employee_directory", [{"email": e, **f, "active": True} for _, e, f in creates], returning=False)
-            for _, email, _, patch in updates:
-                self.client.update("employee_directory", {"email": f"eq.{email}"}, {**patch, "updated_at": _now()})
+        if not dry_run and (creates or updates):
+            stamp = _now()
+            columns = ("active", *EDITABLE_FIELDS)
+            batch: list[dict[str, Any]] = []
             for _, email, fields in creates:
-                self.audit(email, "admin", "import", {k: {"old": None, "new": v} for k, v in fields.items()})
-            for _, email, changes, _ in updates:
-                self.audit(email, "admin", "import", changes)
+                batch.append({"email": email, **{c: fields.get(c) for c in columns}, "active": True, "updated_at": stamp})
+            for _, email, _, patch in updates:
+                merged = {**existing[email], **patch}
+                batch.append({"email": email, **{c: merged.get(c) for c in columns}, "updated_at": stamp})
+            # Một request duy nhất cho cả file (trước đây mỗi dòng 2 request nối tiếp nên file vài trăm dòng chạy hàng phút);
+            # mọi dòng có cùng tập cột nên PostgREST không từ chối.
+            self.client.upsert("employee_directory", batch, "email")
+            audit_rows = [{"email": e, "actor": "admin", "action": "import", "changes": {k: {"old": None, "new": v} for k, v in f.items()}} for _, e, f in creates]
+            audit_rows += [{"email": e, "actor": "admin", "action": "import", "changes": c} for _, e, c, _ in updates]
+            try:
+                self.client.insert("profile_audit_log", audit_rows, returning=False)
+            except Exception:
+                logger.warning("Không ghi được profile_audit_log khi nhập danh bạ", exc_info=True)
         return {"dry_run": dry_run, "created": len(creates), "updated": len(updates), "unchanged": unchanged,
                 "errors": errors, "preview": sorted(preview, key=lambda item: item["row"])[:50]}
