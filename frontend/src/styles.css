@@ -10,7 +10,7 @@ html { font-size: 16px; }
 html, body, #root { height: 100%; }
 body { margin: 0; font-family: 'Manrope', Arial, sans-serif; font-size: 16px; color: #1A1A2E; background: #FAF9F4; }
 button, select, input, textarea { font-family: inherit; font-size: 16px; }
-input::placeholder { color: #8A8BA3; }
+input::placeholder, textarea::placeholder { color: #6B6C85; } /* tương phản >= 4.5:1 trên nền trắng */
 a { color: #26275D; text-decoration: none; }
 a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px; }
 :focus-visible { outline: 3px solid #E2E3F0; outline-offset: 2px; }
@@ -44,7 +44,8 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .field input:focus { border-color: #14153A; box-shadow: 0 0 0 3px #E2E3F0; }
 
 /* ---- sidebar ---- */
-.thread-row { display: flex; align-items: center; gap: 10px; padding: 11px 8px 11px 12px; cursor: pointer; transition: background .15s; }
+.thread-row { display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; transition: background .15s; }
+.thread-row .open { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 12px; background: none; border: 0; text-align: left; color: inherit; cursor: pointer; }
 .thread-row:hover { background: rgba(255, 255, 255, .06); }
 .thread-row.active { background: rgba(255, 255, 255, .09); }
 .thread-row .dot { width: 6px; height: 6px; flex-shrink: 0; background: transparent; }
@@ -53,7 +54,8 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .thread-row.active .title { color: #fff; }
 .thread-row .del { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; background: transparent; border: 0; color: #8A8BB0; cursor: pointer; }
 .thread-row .del:hover { color: #fff; }
-@media (hover: hover) { .thread-row:not(.active) .del { opacity: 0; } .thread-row:hover .del, .thread-row .del:focus-visible { opacity: 1; } }
+@media (hover: hover) { .thread-row:not(.active) .del { opacity: 0; } .thread-row:hover .del, .thread-row:focus-within .del, .thread-row .del:focus-visible { opacity: 1; } }
+.thread-row .open:focus-visible, .thread-row .del:focus-visible { outline-color: #E8C40A; outline-offset: -3px; }
 .side-link { padding: 6px 8px; background: none; border: 0; color: #C9CAE0; font-weight: 600; cursor: pointer; }
 .side-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
 
@@ -76,7 +78,8 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .bot-text strong { font-weight: 700; color: #14153A; }
 .source-item { padding-left: 12px; border-left: 2px solid #E8C40A; line-height: 1.5; color: #54556E; }
 .source-item strong { font-weight: 700; color: #14153A; }
-.send-btn { width: 48px; height: 48px; flex-shrink: 0; display: grid; place-items: center; background: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); border: 0; border-radius: 6px; color: #14153A; cursor: pointer; transition: transform .18s var(--ease), opacity .18s; }
+.chat-input { flex: 1; min-width: 0; min-height: 48px; max-height: 168px; padding: 11px 0; border: 0; background: transparent; color: #1A1A2E; font-size: 17px; line-height: 26px; resize: none; overflow-y: auto; outline: none; }
+.send-btn { width: 48px; height: 48px; flex-shrink: 0; display: grid; place-items: center; background: linear-gradient(180deg, #F9DD0E 0%, #E0B90C 100%); border: 0; border-radius: 0; color: #14153A; cursor: pointer; transition: transform .18s var(--ease), opacity .18s; }
 .send-btn:hover:not(:disabled) { transform: translateY(-2px); }
 .send-btn:disabled { opacity: .45; cursor: not-allowed; }
 
@@ -95,7 +98,7 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .mg-shell { height: 100%; display: flex; flex-direction: column; background: #FAF9F4; }
 .mg-top { display: flex; align-items: center; gap: 20px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #E7E5DA; }
 .mg-top .mg-new { margin-left: auto; height: 46px; padding: 0 22px; white-space: nowrap; }
-.mg-back { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; font-weight: 700; color: #14153A; }
+.mg-back { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 40px; font-weight: 700; color: #14153A; }
 .mg-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr) 320px; }
 .mg-body:not(:has(.mg-side)) { grid-template-columns: 320px minmax(0, 1fr); }
 .mg-tree { min-height: 0; display: flex; flex-direction: column; background: #fff; border-right: 1px solid #E7E5DA; }
@@ -145,7 +148,7 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .mg-muted { margin: 0; color: #54556E; line-height: 1.5; }
 .mg-link { display: block; width: 100%; padding: 6px 0; background: none; border: 0; text-align: left; color: #26275D; font-weight: 600; cursor: pointer; }
 .mg-link:hover { text-decoration: underline; text-underline-offset: 4px; }
-.mg-link.missing { color: #8A8BA3; font-weight: 400; cursor: default; text-decoration: line-through; }
+.mg-link.missing { color: #6B6C85; font-weight: 400; cursor: default; text-decoration: line-through; }
 .mg-version { padding: 12px 0; border-bottom: 1px solid #E7E5DA; }
 .mg-restore { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 4px 0; background: none; border: 0; color: #26275D; font-weight: 700; cursor: pointer; }
 .mg-restore:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 4px; }
@@ -170,6 +173,9 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
   .mg-body { display: flex; flex-direction: column; overflow-y: auto; }
   .mg-tree { max-height: 320px; flex-shrink: 0; border-right: 0; border-bottom: 1px solid #E7E5DA; }
   .mg-main { overflow: visible; padding: 16px; }
+  /* xếp dọc, không co lại để cột Liên kết/Lịch sử không đè lên form */
+  .mg-main, .mg-side { flex-shrink: 0; min-height: auto; overflow: visible; }
+  .mg-side { border-left: 0; border-top: 1px solid #E7E5DA; }
   .mg-fields { grid-template-columns: 1fr; }
   .mg-top { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
 }
@@ -197,13 +203,13 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .md-table th, .md-table td { padding: 8px 12px; border: 1px solid #E7E5DA; text-align: left; vertical-align: top; }
 .md-table th { background: #FAF9F4; color: #14153A; font-weight: 800; }
 .md-wikilink { padding: 0; background: none; border: 0; color: #26275D; font-weight: 700; text-decoration: underline; text-decoration-color: #E8C40A; text-decoration-thickness: 2px; text-underline-offset: 3px; cursor: pointer; }
-.md-wikilink.missing { color: #8A8BA3; font-weight: 400; text-decoration: line-through; cursor: help; }
+.md-wikilink.missing { color: #6B6C85; font-weight: 400; text-decoration: line-through; cursor: help; }
 
 /* ---- trang hồ sơ & WIG (/ho-so) ---- */
 .pf-shell { height: 100%; overflow-y: auto; background: #FAF9F4; }
 .pf-top { display: flex; align-items: center; gap: 20px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #E7E5DA; position: sticky; top: 0; z-index: 5; }
 .pf-top h1 { margin: 0; font-size: 20px; font-weight: 800; color: #14153A; }
-.pf-back { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #14153A; }
+.pf-back { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-weight: 700; color: #14153A; }
 .pf-body { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; max-width: 1180px; margin: 0 auto; padding: 24px; align-items: start; }
 .pf-side, .pf-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .pf-card { padding: 20px; background: #fff; border: 1px solid #E7E5DA; border-radius: 10px; }
@@ -255,14 +261,15 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
 .pf-link:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 4px; }
 .pf-link.danger { color: #E03C31; }
 .pf-link:disabled { opacity: .5; cursor: not-allowed; }
-.pf-check { display: flex; align-items: center; gap: 10px; color: #54556E; cursor: pointer; }
+.pf-check { display: flex; align-items: center; gap: 10px; min-height: 40px; color: #54556E; cursor: pointer; }
+.pf-check input { width: 20px; height: 20px; flex-shrink: 0; cursor: pointer; accent-color: #14153A; }
 .pf-empty { padding: 28px; text-align: center; background: #fff; border: 1px dashed #D8D6C8; border-radius: 10px; color: #54556E; }
 .pf-person { display: flex; flex-direction: column; gap: 12px; }
 .pf-person h3 { margin: 0; font-size: 18px; font-weight: 800; color: #14153A; }
 .pf-error { margin: 16px 24px; padding: 12px 16px; background: #FDE8E6; color: #9B1C14; border-radius: 6px; }
 .pf-toast { position: fixed; top: 20px; right: 20px; z-index: 50; max-width: 380px; padding: 14px 18px; background: #14153A; color: #fff; font-weight: 600; box-shadow: 0 12px 28px rgba(13, 14, 43, .25); }
 .pf-toast.error { background: #E03C31; }
-.pf-req-btn { padding: 4px 0 0; }
+.pf-req-btn { padding: 4px 0 0; min-height: 40px; }
 .pf-req-wait { margin: 4px 0 0; color: #6B5600; font-weight: 700; }
 .pf-req-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 12px; background: #FAF9F4; border: 1px solid #E7E5DA; border-radius: 6px; }
 .pf-req-error { margin: 0; padding: 8px 12px; background: #FDE8E6; color: #9B1C14; border-radius: 6px; line-height: 1.5; }
@@ -281,3 +288,21 @@ a:hover { color: #14153A; text-decoration: underline; text-underline-offset: 4px
   .pf-form { grid-template-columns: minmax(0, 1fr); }
   .pf-top { padding: 12px 16px; }
 }
+
+/* ---- tin nhắn bot dùng chung MarkdownView: thu nhỏ tiêu đề cho hợp khung chat ---- */
+.bot-text .md .md-h { margin-top: 16px; }
+.bot-text .md .md-h1, .bot-text .md .md-h2 { font-size: 20px; }
+.bot-text .md .md-h3, .bot-text .md .md-h4, .bot-text .md .md-h5, .bot-text .md .md-h6 { font-size: 18px; }
+.bot-text .md-ul, .bot-text .md-ol { margin-bottom: 4px; }
+.bot-text .md-ul::marker, .bot-text .md-ul li::marker { color: #6B5600; }
+.bot-text .md a { overflow-wrap: anywhere; }
+
+/* Nút phụ trong khung chat: "Sửa câu hỏi" và câu hỏi gợi ý tiếp theo (vuông, chữ >= 16px) */
+.btn-outline-sm { height: 44px; background: #fff; border-color: #14153A; color: #14153A; }
+.followup { padding: 8px 14px; background: #fff; border: 1px solid #14153A; border-radius: 0; color: #14153A; font-size: 16px; font-weight: 600; line-height: 1.4; text-align: left; cursor: pointer; transition: background .15s; }
+.followup:hover { background: #FBF6DC; }
+.mg-notice.conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; background: #FDE8E6; color: #9B1C14; border-color: #E5A39D; }
+.pf-nodir { max-width: 1132px; width: calc(100% - 48px); margin: 20px auto 0; padding: 16px 20px; background: #FBF6DC; border: 1px solid #E8C40A; border-left: 4px solid #E8C40A; color: #14153A; font-weight: 700; line-height: 1.55; }
+.pf-reached { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; background: #FBF6DC; border-left: 4px solid #E8C40A; font-weight: 700; color: #14153A; }
+.pf-tag.ok { background: #DDF3E4; color: #14532D; }
+.pf-required { color: #9B1C14; font-weight: 800; }

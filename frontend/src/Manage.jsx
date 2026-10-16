@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, History, Lock, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { MarkdownView } from './markdown.jsx'
+import { errorMessage, networkMessage } from './api.js'
 
 const DEPT_LABELS = { HR: 'Nhân sự', Finance: 'Tài chính', Academic: 'Học thuật', Admin: 'Vận hành', Unassigned: 'Dùng chung' }
 const DEPT_ORDER = ['HR', 'Finance', 'Academic', 'Admin', 'Unassigned']
@@ -10,16 +11,22 @@ const KIND_LABELS = { create: 'Tạo mới', update: 'Sửa', delete: 'Xoá', re
 const EMPTY_DRAFT = { title: '', department: 'HR', status: 'approved', access_level: 'staff', content: '' }
 
 async function call(authFetch, path, options = {}) {
-  const response = await authFetch(`/api/manage${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
+  let response
+  try {
+    response = await authFetch(`/api/manage${path}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    })
+  } catch (error) {
+    throw new Error(networkMessage(error)) // mất mạng: 'Failed to fetch' → tiếng Việt
+  }
   const raw = await response.text()
   let data = {}
   try { data = raw ? JSON.parse(raw) : {} } catch { data = { detail: raw } }
   if (!response.ok) {
-    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join('; ') : data.detail
-    throw new Error(detail || `Lỗi ${response.status}`)
+    const error = new Error(errorMessage(data, response.status))
+    error.status = response.status
+    throw error
   }
   return data
 }
@@ -44,6 +51,7 @@ export default function Manage({ authFetch: authFetchProp, user }) {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
   const [loadError, setLoadError] = useState('')
+  const [conflict, setConflict] = useState('') // thông báo khi bản đang sửa đã bị người khác sửa trước (409)
   const toastTimer = useRef(null)
   const dirty = useMemo(() => {
     if (selectedId === 'new') return draft.title.trim() !== '' || draft.content.trim() !== ''
@@ -87,6 +95,7 @@ export default function Manage({ authFetch: authFetchProp, user }) {
     if (id !== selectedId && !confirmLeave()) return
     setSelectedId(id)
     setVersions([])
+    setConflict('')
     try {
       const data = await call(authFetch, `/notes/${encodeURIComponent(id)}`)
       setNote(data)
@@ -105,6 +114,7 @@ export default function Manage({ authFetch: authFetchProp, user }) {
     if (!confirmLeave()) return
     const first = (me?.departments || []).find((d) => d !== 'Unassigned') || me?.departments?.[0] || 'HR'
     setSelectedId('new')
+    setConflict('')
     setNote(null)
     setVersions([])
     setDraft({ ...EMPTY_DRAFT, department: first })
@@ -124,7 +134,13 @@ export default function Manage({ authFetch: authFetchProp, user }) {
         setDraft({ title: data.title, department: data.department, status: data.status, access_level: data.access_level || 'staff', content: data.content })
         call(authFetch, `/notes/${encodeURIComponent(id)}/versions`).then(setVersions).catch(() => {})
       } else {
-        await call(authFetch, `/notes/${encodeURIComponent(selectedId)}`, { method: 'PUT', body: JSON.stringify({ ...draft, base_updated_at: note?.updated_at }) })
+        // base_updated_at là bắt buộc: thiếu thì tải lại bản mới thay vì gửi thiếu
+        if (!note?.updated_at) {
+          setConflict('Chưa xác định được phiên bản đang sửa. Hãy tải lại bản mới rồi sửa lại.')
+          return
+        }
+        await call(authFetch, `/notes/${encodeURIComponent(selectedId)}`, { method: 'PUT', body: JSON.stringify({ ...draft, base_updated_at: note.updated_at }) })
+        setConflict('')
         showToast(draft.status === 'approved' ? 'Đã lưu — chatbot dùng bản mới ngay.' : 'Đã lưu.')
         await loadNotes(query.trim())
         const data = await call(authFetch, `/notes/${encodeURIComponent(selectedId)}`)
@@ -132,6 +148,25 @@ export default function Manage({ authFetch: authFetchProp, user }) {
         setDraft({ title: data.title, department: data.department, status: data.status, access_level: data.access_level || 'staff', content: data.content })
         call(authFetch, `/notes/${encodeURIComponent(selectedId)}/versions`).then(setVersions).catch(() => {})
       }
+    } catch (error) {
+      if (error.status === 409) setConflict(error.message || 'Tài liệu này vừa được người khác sửa.')
+      else showToast(error.message, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Tải bản mới nhất từ server (bỏ phần đang sửa dở) sau khi bị 409
+  const reloadLatest = async () => {
+    if (!window.confirm('Tải bản mới sẽ bỏ phần bạn đang sửa chưa lưu. Tiếp tục?')) return
+    setBusy(true)
+    try {
+      const data = await call(authFetch, `/notes/${encodeURIComponent(selectedId)}`)
+      setNote(data)
+      setDraft({ title: data.title, department: data.department, status: data.status, access_level: data.access_level || 'staff', content: data.content })
+      setConflict('')
+      await loadNotes(query.trim())
+      call(authFetch, `/notes/${encodeURIComponent(selectedId)}/versions`).then(setVersions).catch(() => {})
     } catch (error) {
       showToast(error.message, true)
     } finally {
@@ -255,6 +290,12 @@ export default function Manage({ authFetch: authFetchProp, user }) {
               {!editable && <div className="mg-notice"><Lock size={18} /> Tài liệu thuộc phòng {DEPT_LABELS[note?.department]} — bạn chỉ có quyền xem. Cần sửa thì nhờ leader phòng đó hoặc admin.</div>}
               {note?.source_file?.startsWith('vault:') && editable && (
                 <div className="mg-notice info">Tài liệu này đồng bộ từ wiki Obsidian ({note.source_file.slice(6)}). Nếu file Obsidian được sửa sau, bản sửa trên web sẽ bị thay bằng bản Obsidian — bản cũ vẫn khôi phục được ở mục Lịch sử.</div>
+              )}
+              {conflict && (
+                <div className="mg-notice conflict" role="alert">
+                  <span>{conflict}</span>
+                  {selectedId !== 'new' && <button type="button" className="btn btn-report-send px-5" onClick={reloadLatest} disabled={busy}>Tải lại bản mới</button>}
+                </div>
               )}
               <div className="mg-fields">
                 <label className="mg-field wide">Tiêu đề

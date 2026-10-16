@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, History, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { errorMessage, networkMessage } from './api.js'
 
 const STATUS_LABELS = { active: 'Đang chạy', done: 'Hoàn thành', dropped: 'Đã bỏ' }
 const OWN_KEYS = ['phone', 'zalo', 'birth_date', 'gender', 'address', 'education', 'expertise', 'bio', 'emergency_name', 'emergency_relation', 'emergency_phone']
 const toOwn = (data) => Object.fromEntries(OWN_KEYS.map((key) => [key, data?.[key] || '']))
 
 async function call(authFetch, path, options = {}) {
-  const response = await authFetch(`/api${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-  })
+  let response
+  try {
+    response = await authFetch(`/api${path}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    })
+  } catch (error) {
+    throw new Error(networkMessage(error))
+  }
   const raw = await response.text()
   let data = {}
   try { data = raw ? JSON.parse(raw) : {} } catch { data = { detail: raw } }
   if (!response.ok) {
-    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join('; ') : data.detail
-    throw new Error(detail || `Lỗi ${response.status}`)
+    throw new Error(errorMessage(data, response.status))
   }
   return data
 }
@@ -58,6 +63,12 @@ function WigCard({ wig, onChanged, notify, authFetch, readOnly = false }) {
   const [history, setHistory] = useState([])
   const [busy, setBusy] = useState(false)
   const unit = wig.unit ? ` ${wig.unit}` : ''
+  const start = Number(wig.start_value)
+  const current = Number(wig.current_value)
+  const target = Number(wig.target_value)
+  const decreasing = wig.start_value != null && target < start // chỉ số "càng thấp càng tốt"
+  const reached = wig.progress >= 100 || (decreasing ? current <= target : current >= target)
+  const exceeded = decreasing ? current < target : current > target
 
   async function run(action, success) {
     setBusy(true)
@@ -99,6 +110,7 @@ function WigCard({ wig, onChanged, notify, authFetch, readOnly = false }) {
         <span className="pf-tag">{wig.period_label}</span>
         {wig.status !== 'active' && <span className="pf-tag dark">{STATUS_LABELS[wig.status]}</span>}
         {wig.overdue && <span className="pf-tag warn">Quá hạn</span>}
+        {exceeded && <span className="pf-tag ok">Vượt mục tiêu</span>}
       </header>
       {wig.description && <p className="pf-muted">{wig.description}</p>}
       <div className="pf-wig-progress">
@@ -106,9 +118,19 @@ function WigCard({ wig, onChanged, notify, authFetch, readOnly = false }) {
         <strong>{formatNumber(wig.progress)}%</strong>
       </div>
       <p className="pf-muted">
-        {wig.metric_name}: <strong>{formatNumber(wig.current_value)}</strong> / {formatNumber(wig.target_value)}{unit}
+        {decreasing ? (
+          <>{wig.metric_name} (càng thấp càng tốt): đầu kỳ <strong>{formatNumber(start)}</strong> → hiện tại <strong>{formatNumber(current)}</strong>, mục tiêu ≤ <strong>{formatNumber(target)}</strong>{unit}</>
+        ) : (
+          <>{wig.metric_name}: <strong>{formatNumber(current)}</strong> / {formatNumber(target)}{unit}</>
+        )}
         {wig.due_date ? ` · hạn ${formatDate(wig.due_date)}` : ''}
       </p>
+      {!readOnly && wig.status === 'active' && reached && (
+        <div className="pf-reached" role="status">
+          <span>Đã đạt mục tiêu — đóng WIG này?</span>
+          <button type="button" className="btn pf-btn dark" disabled={busy} onClick={() => setStatus('done', 'Đã đánh dấu hoàn thành.')}>Đánh dấu hoàn thành</button>
+        </div>
+      )}
 
       {mode === 'progress' && !readOnly && (
         <form className="pf-inline" onSubmit={saveProgress}>
@@ -157,8 +179,13 @@ function FactRow({ label, display, spec, rawValue, pending, canRequest, onSubmit
     event.preventDefault()
     setBusy(true)
     setError('')
+    if (reason.trim().length < 5) { // backend yêu cầu tối thiểu 5 ký tự
+      setError('Vui lòng nhập lý do (tối thiểu 5 ký tự).')
+      setBusy(false)
+      return
+    }
     try {
-      await onSubmit({ field: spec.field, new_value: value.trim(), reason: reason.trim() || null })
+      await onSubmit({ field: spec.field, new_value: value.trim(), reason: reason.trim() })
       setOpen(false)
       setValue('')
       setReason('')
@@ -182,8 +209,8 @@ function FactRow({ label, display, spec, rawValue, pending, canRequest, onSubmit
           <label className="pf-field">Giá trị mới
             <input type={spec.type === 'date' ? 'date' : 'text'} required maxLength={spec.type === 'date' ? undefined : spec.max_length} value={value} onChange={(event) => setValue(event.target.value)} />
           </label>
-          <label className="pf-field">Lý do (tuỳ chọn)
-            <input maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <label className="pf-field">Lý do <span className="pf-required" aria-hidden="true">*</span> <span className="pf-muted">(bắt buộc, tối thiểu 5 ký tự)</span>
+            <input required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: đổi chức danh theo quyết định mới" />
           </label>
           {error && <p className="pf-req-error" role="alert">{error}</p>}
           <div className="pf-actions">
@@ -230,6 +257,7 @@ export default function Profile({ authFetch: authFetchProp }) {
   const [own, setOwn] = useState(() => toOwn(null))
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [agree, setAgree] = useState(false) // đã tick đồng ý trước khi lưu hồ sơ cá nhân
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
 
@@ -262,8 +290,13 @@ export default function Profile({ authFetch: authFetchProp }) {
 
   async function saveOwn(event) {
     event.preventDefault()
+    if (!profile?.consent_at && !agree) {
+      notify('Bạn cần tick đồng ý trước khi lưu thông tin cá nhân.', true)
+      return
+    }
     setBusy(true)
     try {
+      if (!profile?.consent_at) await recordConsent() // phải có consent trước khi PUT
       await call(authFetch, '/me/profile', { method: 'PUT', body: JSON.stringify({ ...own, birth_date: own.birth_date || null }) })
       notify('Đã lưu thông tin của bạn.')
     } catch (error) {
@@ -292,10 +325,14 @@ export default function Profile({ authFetch: authFetchProp }) {
     }
   }
 
+  async function recordConsent() {
+    const data = await call(authFetch, '/me/profile/consent', { method: 'POST' })
+    setProfile((current) => ({ ...current, consent_at: data.consent_at || new Date().toISOString() }))
+  }
+
   async function acceptConsent() {
     try {
-      const data = await call(authFetch, '/me/profile/consent', { method: 'POST' })
-      setProfile((current) => ({ ...current, consent_at: data.consent_at || new Date().toISOString() }))
+      await recordConsent()
     } catch (error) {
       notify(error.message, true)
     }
@@ -335,6 +372,11 @@ export default function Profile({ authFetch: authFetchProp }) {
         <h1>Hồ sơ &amp; WIG</h1>
       </header>
       {loadError && <p className="pf-error" role="alert">{loadError}</p>}
+      {profile && profile.in_directory === false && (
+        <section className="pf-nodir" role="alert">
+          Bạn chưa có trong danh bạ nhân sự nên chưa có thông tin công việc. Hãy liên hệ HR để được thêm vào.
+        </section>
+      )}
       {profile && !profile.consent_at && (
         <section className="pf-consent" aria-label="Thông báo mục đích sử dụng dữ liệu">
           <h2>Về dữ liệu hồ sơ của bạn</h2>
@@ -359,12 +401,11 @@ export default function Profile({ authFetch: authFetchProp }) {
                   <p className="pf-muted">{[profile.job_title, profile.department].filter(Boolean).join(' · ') || 'Chưa có thông tin chức danh'}</p>
                 </div>
               </div>
-              {!profile.in_directory && <p className="pf-notice">Bạn chưa có trong danh bạ nhân sự nên một số thông tin đang trống. Nhờ HR bổ sung để hiển thị đầy đủ.</p>}
               <dl className="pf-facts">
                 {(() => {
                   const specs = Object.fromEntries((profile.requestable_fields?.length ? profile.requestable_fields : DEFAULT_REQUESTABLE).map((item) => [item.field, item]))
                   const pendingFields = new Set((profile.requests || []).filter((item) => item.status === 'pending').map((item) => item.field))
-                  const canRequest = profile.in_directory !== false && !!profile.requestable_fields
+                  const canRequest = profile.in_directory !== false && !!profile.requestable_fields // chưa vào danh bạ thì khoá form yêu cầu sửa
                   const row = (key, label, raw, display) => raw && (
                     <FactRow key={key} label={label} display={display || raw} rawValue={raw} spec={specs[key]} pending={pendingFields.has(key)} canRequest={canRequest} onSubmit={sendRequest} />
                   )
@@ -475,7 +516,13 @@ export default function Profile({ authFetch: authFetchProp }) {
                 <label className="pf-field">Họ tên<input maxLength={100} value={own.emergency_name} onChange={setOwnField('emergency_name')} /></label>
                 <label className="pf-field">Quan hệ<input maxLength={60} value={own.emergency_relation} onChange={setOwnField('emergency_relation')} placeholder="Vợ/chồng, bố/mẹ, anh/chị..." /></label>
                 <label className="pf-field wide">Điện thoại<input maxLength={30} value={own.emergency_phone} onChange={setOwnField('emergency_phone')} /></label>
-                <div className="pf-actions wide"><button className="btn pf-btn dark" disabled={busy}>Lưu thông tin</button></div>
+                {!profile.consent_at && (
+                  <label className="pf-check wide">
+                    <input type="checkbox" checked={agree} onChange={(event) => setAgree(event.target.checked)} />
+                    <span>Tôi đã đọc mục “Về dữ liệu hồ sơ của bạn” và đồng ý để công ty lưu thông tin cá nhân này.</span>
+                  </label>
+                )}
+                <div className="pf-actions wide"><button className="btn pf-btn dark" disabled={busy || (!profile.consent_at && !agree)}>Lưu thông tin</button></div>
               </form>
             )}
 

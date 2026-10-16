@@ -4,7 +4,7 @@ import { Fragment } from 'react'
  * leader soạn không thể chèn script. Hỗ trợ: tiêu đề, đoạn, **đậm**, *nghiêng*, `code`, danh sách lồng
  * nhau, bảng, trích dẫn/callout (> [!note]), đường kẻ, khối code, [liên kết](http...) và [[wiki-link]]. */
 
-const INLINE = /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(\[[^\]\n]+\]\((?:https?:\/\/|mailto:)[^\s)]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(_[^_\s][^_\n]*_)/g
+const INLINE = /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(\[[^\]\n]+\]\((?:https?:\/\/|mailto:)[^\s)]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(_[^_\s][^_\n]*_)|(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'\"])/g
 
 export function renderInline(text, linkMap, onOpenLink, keyPrefix = 'i') {
   const out = []
@@ -26,6 +26,7 @@ export function renderInline(text, linkMap, onOpenLink, keyPrefix = 'i') {
       const [, label, url] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
       out.push(<a key={key} href={url} target="_blank" rel="noopener noreferrer">{label}</a>)
     } else if (match[4]) out.push(<strong key={key}>{token.slice(2, -2)}</strong>)
+    else if (match[7]) out.push(<a key={key} href={token} target="_blank" rel="noopener noreferrer">{token}</a>) // link thô: chỉ http(s)
     else out.push(<em key={key}>{token.slice(1, -1)}</em>)
     last = match.index + token.length
   }

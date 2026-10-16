@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
+import { MarkdownView } from './markdown.jsx'
+import { errorMessage, networkMessage } from './api.js'
 // Hai trang này chỉ tải khi người dùng vào đó, để màn hình chat/đăng nhập tải nhanh hơn
 const Manage = lazy(() => import('./Manage.jsx'))
 const Profile = lazy(() => import('./Profile.jsx'))
@@ -18,6 +20,32 @@ const suggestions = [
 
 const TOKEN_KEY = 'va_token'
 const REFRESH_KEY = 'va_refresh_token'
+const DRAFT_KEY = 'va_draft' // câu đang gõ khi phiên hết hạn, khôi phục sau khi đăng nhập lại
+const MAX_QUESTION = 2000 // backend giới hạn 2000 ký tự
+const ACTIVE_THREAD_KEY = 'va_active_thread' // thread đang xem, lưu theo user để F5 không mất
+
+function readActiveThread(uid) {
+  try { return localStorage.getItem(`${ACTIVE_THREAD_KEY}:${uid}`) } catch { return null }
+}
+function writeActiveThread(uid, id) {
+  try {
+    if (id) localStorage.setItem(`${ACTIVE_THREAD_KEY}:${uid}`, id)
+    else localStorage.removeItem(`${ACTIVE_THREAD_KEY}:${uid}`)
+  } catch { /* trình duyệt chặn storage: bỏ qua */ }
+}
+
+function saveDraft(text) {
+  try { sessionStorage.setItem(DRAFT_KEY, text) } catch { /* trình duyệt chặn storage: bỏ qua */ }
+}
+function takeDraft() {
+  try {
+    const text = sessionStorage.getItem(DRAFT_KEY)
+    if (text) sessionStorage.removeItem(DRAFT_KEY)
+    return text || ''
+  } catch {
+    return ''
+  }
+}
 
 /** Đăng nhập 1 lần từ Major OS: backend /sso/os trả phiên qua URL fragment (#sso_access=...).
  * Phải đọc ĐỒNG BỘ ngay lúc khởi tạo state (trước lần render đầu) để màn đăng nhập không nháy lên;
@@ -41,7 +69,7 @@ async function readApiResponse(response) {
     if (/^\s*<(!doctype|html)/i.test(raw)) {
       return { detail: `Máy chủ tạm thời không phản hồi (HTTP ${response.status}). Thử lại sau ít phút.` }
     }
-    return { detail: raw || `Backend trả về HTTP ${response.status}` }
+    return { detail: raw || `Máy chủ trả về lỗi (HTTP ${response.status}).` }
   }
 }
 
@@ -64,6 +92,18 @@ function App() {
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
+  const [meError, setMeError] = useState('') // lỗi tạm thời khi kiểm tra phiên (503/mất mạng) — KHÔNG xoá token
+  const [meRetry, setMeRetry] = useState(0)
+  const [viewKey, setViewKey] = useState(0) // đổi mỗi lần mở thread/tạo mới, để bỏ qua phản hồi của thread cũ
+  const [pendingView, setPendingView] = useState(null)
+  const [threadLoading, setThreadLoading] = useState(false)
+  const [threadError, setThreadError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [manageInfo, setManageInfo] = useState(null) // quyền quản lý (từ /api/manage/me), tải nền sau khi vào app
+  const restoredRef = useRef(false) // đã thử khôi phục thread đang xem sau khi tải trang chưa
+  const viewRef = useRef(0)
+  const noticeTimer = useRef(null)
+  const inputRef = useRef(null)
   const scrollAnchorRef = useRef(null)
   const tokenRef = useRef(token)
   const refreshingRef = useRef(null)
@@ -123,19 +163,59 @@ function App() {
       return
     }
     ;(async () => {
+      setMeError('')
       try {
         const response = await authFetch('/api/auth/me')
-        if (!response.ok) throw new Error()
-        setUser(await response.json())
-        loadThreads()
+        if (response.status === 401) {
+          clearSession() // token thật sự hết hạn/không hợp lệ
+        } else if (!response.ok) {
+          setMeError('Không kết nối được, thử lại')
+        } else {
+          const me = await response.json()
+          setUser(me)
+          loadThreads(me.id)
+          const draft = takeDraft()
+          if (draft) setQuestion(draft)
+        }
       } catch {
-        clearSession()
+        setMeError('Không kết nối được, thử lại') // mất mạng: giữ token để thử lại
       } finally {
         setAuthChecked(true)
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token])
+  }, [token, meRetry])
+
+  // Nhớ thread đang xem (chỉ sau khi đã thử khôi phục, để lần render đầu không ghi đè bằng null)
+  useEffect(() => {
+    if (user?.id && restoredRef.current) writeActiveThread(user.id, activeThreadId)
+  }, [activeThreadId, user?.id])
+
+  // Quyền quản lý tải nền, không chặn lần mở đầu; lỗi thì chỉ ẩn link
+  useEffect(() => {
+    if (!user?.id) { setManageInfo(null); return undefined }
+    let cancelled = false
+    authFetch('/api/manage/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!cancelled) setManageInfo(data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  // Ô nhập tự giãn theo nội dung (tối đa ~6 dòng, giới hạn bằng max-height trong CSS)
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [question, user])
+
+  function showNotice(text) {
+    clearTimeout(noticeTimer.current)
+    setNotice(text)
+    noticeTimer.current = setTimeout(() => setNotice(''), 6000)
+  }
 
   function persistSession(accessToken, refreshToken) {
     localStorage.setItem(TOKEN_KEY, accessToken)
@@ -195,42 +275,73 @@ function App() {
     }
   }
 
-  async function loadThreads() {
+  async function loadThreads(uid) {
     try {
       const response = await authFetch('/api/chat/threads')
-      if (response.ok) setThreads(await response.json())
+      if (response.ok) {
+        const rows = await response.json()
+        setThreads(rows)
+        // Lần tải đầu sau F5: mở lại thread đang xem; thread đã bị xoá thì về cuộc mới, không báo lỗi
+        if (uid && !restoredRef.current) {
+          restoredRef.current = true
+          const saved = readActiveThread(uid)
+          if (saved && rows.some((thread) => thread.id === saved)) openThread(saved)
+          else if (saved) writeActiveThread(uid, null)
+        }
+      }
     } catch {
       // best-effort
     }
   }
 
+  function nextView() {
+    viewRef.current += 1
+    setViewKey(viewRef.current)
+    return viewRef.current
+  }
+
   async function openThread(id) {
+    const view = nextView()
     setActiveThreadId(id)
     setMobileNav(false)
+    setMessages([])
+    setThreadError('')
+    setThreadLoading(true)
     try {
       const response = await authFetch(`/api/chat/threads/${id}/messages`)
-      const rows = response.ok ? await response.json() : []
-      setMessages(rows.map((row) => ({ role: row.role, text: row.content })))
-    } catch {
-      setMessages([])
+      if (!response.ok) throw new Error(errorMessage(await readApiResponse(response), response.status, 'Không tải được cuộc trò chuyện này.'))
+      const rows = await response.json()
+      if (viewRef.current !== view) return // người dùng đã chuyển thread khác
+      setMessages(rows.map((row) => ({ role: row.role, text: row.content, citations: row.citations || [] })))
+    } catch (error) {
+      if (viewRef.current === view) setThreadError(networkMessage(error))
+    } finally {
+      if (viewRef.current === view) setThreadLoading(false)
     }
   }
 
   function startNewThread() {
+    nextView()
     setActiveThreadId(null)
     setMessages([])
+    setThreadError('')
+    setThreadLoading(false)
     setMobileNav(false)
   }
 
   async function deleteThread(id, event) {
     event.stopPropagation()
+    const title = threads.find((thread) => thread.id === id)?.title || 'Cuộc trò chuyện mới'
+    if (!window.confirm(`Xoá cuộc trò chuyện "${title}"? Không thể khôi phục.`)) return
+    try {
+      const response = await authFetch(`/api/chat/threads/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error(errorMessage(await readApiResponse(response), response.status, 'Không xoá được cuộc trò chuyện.'))
+    } catch (error) {
+      showNotice(`Chưa xoá được cuộc trò chuyện. ${networkMessage(error)}`) // chưa gỡ khỏi danh sách nên không cần hoàn tác
+      return
+    }
     setThreads((current) => current.filter((thread) => thread.id !== id))
     if (activeThreadId === id) startNewThread()
-    try {
-      await authFetch(`/api/chat/threads/${id}`, { method: 'DELETE' })
-    } catch {
-      // best-effort
-    }
   }
 
   function clearSession() {
@@ -242,6 +353,7 @@ function App() {
     setThreads([])
     setActiveThreadId(null)
     setMessages([])
+    restoredRef.current = false
   }
 
   async function handleLogout() {
@@ -297,7 +409,7 @@ function App() {
         body: JSON.stringify(body),
       })
       const data = await readApiResponse(response)
-      if (!response.ok) throw new Error(data.detail || 'Không thể xác thực')
+      if (!response.ok) throw new Error(errorMessage(data, response.status, 'Không thể xác thực'))
       persistSession(data.access_token, data.refresh_token)
     } catch (error) {
       setAuthError(error.message)
@@ -344,20 +456,29 @@ function App() {
     })
     if (!response.ok) {
       const data = await readApiResponse(response)
-      throw new Error(data.detail || 'Chưa gửi được báo cáo, vui lòng thử lại.')
+      throw new Error(errorMessage(data, response.status, 'Chưa gửi được báo cáo, vui lòng thử lại.'))
     }
     setMessages((current) => current.map((message, i) => (i === index ? { ...message, reported: true } : message)))
   }
 
-  async function ask(value = question) {
-    const text = value.trim()
-    if (!text || loading) return
-    setQuestion('')
-    const history = messages
+  async function ask(value = question, { retry = false } = {}) {
+    const text = String(value).trim()
+    if (!text || loading || threadLoading) return
+    if (!retry) setQuestion('')
+    // Bỏ câu báo lỗi của trợ lý khỏi history gửi LLM
+    let base = messages.filter((message) => !message.error)
+    // Gửi lại: câu hỏi đã nằm sẵn trong khung chat, không đưa vào history và không thêm lần nữa
+    if (retry && base.at(-1)?.role === 'user') base = base.slice(0, -1)
+    const history = base
       .slice(-6)
       .map((message) => ({ role: message.role, content: message.text }))
-    setMessages((current) => [...current, { role: 'user', text }])
+    const viewAtSend = viewRef.current
+    const stillHere = () => viewRef.current === viewAtSend // vẫn đang xem đúng thread lúc gửi?
+    setMessages((current) => (retry
+      ? current.filter((message) => !message.error) // bỏ tin lỗi cũ, giữ nguyên câu hỏi của người dùng
+      : [...current, { role: 'user', text }]))
     setLoading(true)
+    setPendingView(viewAtSend)
     try {
       const response = await authFetch('/api/chat-staff', {
         method: 'POST',
@@ -369,23 +490,38 @@ function App() {
         }),
       })
       if (response.status === 401) {
+        saveDraft(text) // giữ lại câu đang hỏi để khôi phục sau khi đăng nhập lại
+        setAuthError('Phiên đã hết hạn, vui lòng đăng nhập lại')
         clearSession()
         return
       }
       const data = await readApiResponse(response)
       if (!response.ok) {
-        throw new Error(data.detail || `Backend trả về HTTP ${response.status}`)
+        throw new Error(errorMessage(data, response.status, `Máy chủ trả về lỗi (HTTP ${response.status}).`))
       }
-      setMessages((current) => [...current, { role: 'assistant', text: data.answer, citations: data.citations || [] }])
-      if (data.thread_id) {
-        setActiveThreadId(data.thread_id)
-        loadThreads()
-      }
+      if (data.thread_id) loadThreads()
+      // Người dùng đã sang thread khác trong lúc chờ: không chèn câu trả lời / không đổi thread
+      if (!stillHere()) return
+      const followUps = Array.isArray(data.suggestions) ? data.suggestions.filter((item) => typeof item === 'string' && item.trim()).slice(0, 3) : []
+      setMessages((current) => [...current, { role: 'assistant', text: data.answer, citations: data.citations || [], suggestions: followUps }])
+      if (data.thread_id) setActiveThreadId(data.thread_id)
     } catch (error) {
-      setMessages((current) => [...current, { role: 'assistant', error: true, text: `Không thể xử lý câu hỏi. ${error.message || 'Kiểm tra backend FastAPI ở port 8000.'}` }])
+      if (!stillHere()) return
+      setMessages((current) => [...current, { role: 'assistant', error: true, text: `Không thể xử lý câu hỏi. ${networkMessage(error)}`, retryText: text }])
     } finally {
       setLoading(false)
+      setPendingView(null)
     }
+  }
+
+  // Đưa câu hỏi lỗi về ô nhập để sửa: gỡ cả tin lỗi lẫn câu hỏi cũ để không bị lặp khi gửi lại
+  function editFailed(text) {
+    setMessages((current) => {
+      const withoutError = current.filter((message) => !message.error)
+      return withoutError.at(-1)?.role === 'user' ? withoutError.slice(0, -1) : withoutError
+    })
+    setQuestion(text)
+    inputRef.current?.focus()
   }
 
   const statusOnline = health?.status === 'ok'
@@ -397,6 +533,19 @@ function App() {
 
   if (!authChecked) {
     return <div className="grid h-full place-items-center bg-cream text-base text-muted">Đang tải...</div>
+  }
+
+  if (!user && token && meError) {
+    return (
+      <div className="grid h-full place-items-center bg-cream px-6">
+        <div className="max-w-[460px] text-center">
+          <div className="rule mx-auto" />
+          <h1 className="mt-5 text-2xl font-extrabold text-navy">{meError}</h1>
+          <p className="mt-3 leading-relaxed text-muted">Phiên đăng nhập của bạn vẫn được giữ. Kiểm tra kết nối mạng rồi bấm Thử lại.</p>
+          <button type="button" onClick={() => { setAuthChecked(false); setMeRetry((n) => n + 1) }} className="btn btn-cta mt-8 px-8">Thử lại</button>
+        </div>
+      </div>
+    )
   }
 
   if (!user) {
@@ -441,10 +590,12 @@ function App() {
         <div className="mt-2.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
           {threads.length === 0 && <p className="p-2 text-[#A9AAC8]">Chưa có cuộc trò chuyện nào.</p>}
           {threads.map((thread) => (
-            <div key={thread.id} onClick={() => openThread(thread.id)} className={`thread-row ${thread.id === activeThreadId ? 'active' : ''}`}>
-              <span className="dot" />
-              <span className="title">{thread.title || 'Cuộc trò chuyện mới'}</span>
-              <button onClick={(event) => deleteThread(thread.id, event)} className="del" aria-label="Xoá cuộc trò chuyện"><X size={14} strokeWidth={2.2} /></button>
+            <div key={thread.id} className={`thread-row ${thread.id === activeThreadId ? 'active' : ''}`}>
+              <button type="button" onClick={() => openThread(thread.id)} className="open" aria-current={thread.id === activeThreadId ? 'true' : undefined}>
+                <span className="dot" />
+                <span className="title">{thread.title || 'Cuộc trò chuyện mới'}</span>
+              </button>
+              <button type="button" onClick={(event) => deleteThread(thread.id, event)} className="del" aria-label={`Xoá cuộc trò chuyện ${thread.title || ''}`.trim()}><X size={14} strokeWidth={2.2} /></button>
             </div>
           ))}
         </div>
@@ -479,16 +630,36 @@ function App() {
               <span className="hidden sm:inline">{statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}</span>
               <span className="sm:hidden">{statusOnline ? `${approvedCount} tài liệu` : statusPending ? '...' : 'Mất kết nối'}</span>
             </div>
-            <a href="/admin" className="hidden font-semibold text-muted sm:inline">Quản lý dữ liệu</a>
+            {manageInfo?.can_manage && <a href="/quan-ly" className="hidden font-semibold text-muted sm:inline">Quản lý tri thức</a>}
+            {manageInfo?.is_admin && <a href="/admin" className="hidden font-semibold text-muted sm:inline">Quản trị</a>}
           </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-10 sm:px-6">
-          <div className="mx-auto max-w-[760px]">
-            {messages.length === 0 && !loading ? <EmptyState firstName={firstName} onAsk={ask} /> : (
+          <div className="mx-auto max-w-[760px]" role="log" aria-live="polite" aria-label="Cuộc trò chuyện">
+            {threadLoading ? (
+              <div className="flex items-center gap-3 text-muted"><span className="typing"><i /><i /><i /></span>Đang tải cuộc trò chuyện…</div>
+            ) : threadError ? (
+              <div className="flex flex-col items-start gap-3" role="alert">
+                <p className="text-danger">{threadError}</p>
+                <button type="button" className="btn btn-report-send px-5" onClick={() => openThread(activeThreadId)}>Thử lại</button>
+              </div>
+            ) : messages.length === 0 && !loading ? <EmptyState firstName={firstName} onAsk={ask} /> : (
               <div className="flex flex-col gap-8">
-                {messages.map((message, index) => <Message key={`${message.role}-${index}`} message={message} onReport={(payload) => reportAnswer(index, payload)} />)}
-                {loading && (
+                {messages.map((message, index) => {
+                  const isLast = index === messages.length - 1
+                  return (
+                    <Message
+                      key={`${message.role}-${index}`}
+                      message={message}
+                      onReport={(payload) => reportAnswer(index, payload)}
+                      onRetry={isLast && message.retryText && !loading ? () => ask(message.retryText, { retry: true }) : null}
+                      onEdit={isLast && message.retryText && !loading ? () => editFailed(message.retryText) : null}
+                      onSuggest={isLast && !loading ? ask : null}
+                    />
+                  )
+                })}
+                {loading && pendingView === viewKey && (
                   <div className="flex items-center gap-4">
                     <div className="va-mark">VA</div>
                     <div className="flex items-center gap-3 text-muted"><span className="typing"><i /><i /><i /></span>Đang tra cứu tài liệu nội bộ…</div>
@@ -502,10 +673,25 @@ function App() {
 
         <form className="bg-cream px-4 pb-5 pt-4 sm:px-6" onSubmit={(event) => { event.preventDefault(); ask() }}>
           <div className="mx-auto max-w-[760px]">
-            <div className="flex items-center gap-2 rounded-lg border border-line bg-white py-1.5 pl-5 pr-1.5 shadow-[0_4px_16px_rgba(20,21,58,.05)]">
-              <input value={question} onChange={(event) => setQuestion(event.target.value)} className="h-12 min-w-0 flex-1 border-0 bg-transparent text-[17px] text-ink outline-none" placeholder="Hỏi về quy định nội bộ…" aria-label="Câu hỏi" />
-              <button disabled={loading || !question.trim()} className="send-btn" aria-label="Gửi câu hỏi"><ArrowUp size={20} strokeWidth={2.6} /></button>
+            {notice && <p className="mb-2 bg-[#FDE8E6] px-4 py-2.5 text-[#9B1C14]" role="alert">{notice}</p>}
+            <div className="flex items-end gap-2 rounded-lg border border-line bg-white py-1.5 pl-5 pr-1.5 shadow-[0_4px_16px_rgba(20,21,58,.05)]">
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={question}
+                maxLength={MAX_QUESTION}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  // Enter gửi, Shift+Enter xuống dòng (bỏ qua khi đang gõ tiếng Việt bằng IME)
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); ask() }
+                }}
+                className="chat-input"
+                placeholder="Hỏi về quy định nội bộ…"
+                aria-label="Câu hỏi"
+              />
+              <button disabled={loading || threadLoading || !question.trim()} className="send-btn" aria-label="Gửi câu hỏi"><ArrowUp size={20} strokeWidth={2.6} /></button>
             </div>
+            {question.length >= MAX_QUESTION - 300 && <p className={`mt-1.5 text-right ${question.length >= MAX_QUESTION ? 'font-bold text-danger' : 'text-muted'}`} aria-live="polite">{question.length}/{MAX_QUESTION} ký tự</p>}
             <p className="mt-2.5 text-center leading-[1.5] text-muted">Câu trả lời dựa trên tài liệu nội bộ đã được duyệt; phần pháp luật chung chỉ để tham khảo. Ứng dụng ghi nhận thời gian và tính năng sử dụng để cải thiện sản phẩm.</p>
           </div>
         </form>
@@ -596,40 +782,6 @@ function EmptyState({ firstName, onAsk }) {
   )
 }
 
-function renderInline(text, keyPrefix) {
-  const parts = text.split(/\*\*(.+?)\*\*/g)
-  return parts.map((part, index) =>
-    index % 2 === 1 ? <strong key={`${keyPrefix}-b${index}`}>{part}</strong> : <span key={`${keyPrefix}-t${index}`}>{part}</span>
-  )
-}
-
-function renderMessageText(text) {
-  const blocks = text.split(/\n{2,}/)
-  return blocks.map((block, blockIndex) => {
-    const lines = block.split('\n').filter((line) => line.trim() !== '')
-    const isBulletBlock = lines.length > 0 && lines.every((line) => /^\s*[*-]\s+/.test(line))
-    if (isBulletBlock) {
-      return (
-        <ul key={`b${blockIndex}`} className="mb-3 flex list-disc flex-col gap-1 pl-[22px] marker:text-gold-text">
-          {lines.map((line, lineIndex) => (
-            <li key={`b${blockIndex}-l${lineIndex}`} className={`pl-1 ${/^\s{2,}/.test(line) ? 'ml-5' : ''}`}>{renderInline(line.replace(/^\s*[*-]\s+/, ''), `b${blockIndex}-l${lineIndex}`)}</li>
-          ))}
-        </ul>
-      )
-    }
-    return (
-      <p key={`b${blockIndex}`} className="mb-2.5 [text-wrap:pretty]">
-        {block.split('\n').map((line, lineIndex, arr) => (
-          <span key={`b${blockIndex}-l${lineIndex}`}>
-            {renderInline(line, `b${blockIndex}-l${lineIndex}`)}
-            {lineIndex < arr.length - 1 && <br />}
-          </span>
-        ))}
-      </p>
-    )
-  })
-}
-
 const REPORT_REASONS = [
   { value: 'wrong_info', label: 'Sai thông tin' },
   { value: 'missing_info', label: 'Thiếu ý' },
@@ -701,7 +853,7 @@ function groupCitations(citations) {
   return [...groups.values()]
 }
 
-function Message({ message, onReport }) {
+function Message({ message, onReport, onRetry, onEdit, onSuggest }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -713,7 +865,7 @@ function Message({ message, onReport }) {
     <div className="flex gap-4">
       <div className="va-mark">VA</div>
       <div className="bot-text min-w-0 flex-1 pt-1 text-[17px] leading-[1.7] text-ink">
-        {renderMessageText(message.text)}
+        <MarkdownView source={message.text} />
         {message.citations?.length > 0 && (
           <div className="mt-5 border-t border-line pt-3">
             <span className="font-bold text-gold-text">Nguồn</span>
@@ -728,7 +880,20 @@ function Message({ message, onReport }) {
             </ul>
           </div>
         )}
+        {message.error && (onRetry || onEdit) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {onRetry && <button type="button" className="btn btn-report-send px-5" onClick={onRetry}>Thử lại</button>}
+            {onEdit && <button type="button" className="btn btn-outline-sm px-5" onClick={onEdit}>Sửa câu hỏi</button>}
+          </div>
+        )}
         {!message.error && onReport && <ReportControl message={message} onReport={onReport} />}
+        {onSuggest && message.suggestions?.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2" aria-label="Câu hỏi gợi ý">
+            {message.suggestions.map((item) => (
+              <button key={item} type="button" className="followup" onClick={() => onSuggest(item)}>{item}</button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
