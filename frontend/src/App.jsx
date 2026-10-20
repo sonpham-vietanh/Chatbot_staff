@@ -99,7 +99,6 @@ function App() {
   const [threadLoading, setThreadLoading] = useState(false)
   const [threadError, setThreadError] = useState('')
   const [notice, setNotice] = useState('')
-  const [manageInfo, setManageInfo] = useState(null) // quyền quản lý (từ /api/manage/me), tải nền sau khi vào app
   const restoredRef = useRef(false) // đã thử khôi phục thread đang xem sau khi tải trang chưa
   const viewRef = useRef(0)
   const noticeTimer = useRef(null)
@@ -190,18 +189,6 @@ function App() {
   useEffect(() => {
     if (user?.id && restoredRef.current) writeActiveThread(user.id, activeThreadId)
   }, [activeThreadId, user?.id])
-
-  // Quyền quản lý tải nền, không chặn lần mở đầu; lỗi thì chỉ ẩn link
-  useEffect(() => {
-    if (!user?.id) { setManageInfo(null); return undefined }
-    let cancelled = false
-    authFetch('/api/manage/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (!cancelled) setManageInfo(data) })
-      .catch(() => {})
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
 
   // Ô nhập tự giãn theo nội dung (tối đa ~6 dòng, giới hạn bằng max-height trong CSS)
   useEffect(() => {
@@ -630,8 +617,6 @@ function App() {
               <span className="hidden sm:inline">{statusOnline ? `${approvedCount} tài liệu đã duyệt` : statusPending ? 'Đang kết nối...' : 'Mất kết nối'}</span>
               <span className="sm:hidden">{statusOnline ? `${approvedCount} tài liệu` : statusPending ? '...' : 'Mất kết nối'}</span>
             </div>
-            {manageInfo?.can_manage && <a href="/quan-ly" className="hidden font-semibold text-muted sm:inline">Quản lý tri thức</a>}
-            {manageInfo?.is_admin && <a href="/admin" className="hidden font-semibold text-muted sm:inline">Quản trị</a>}
           </div>
         </header>
 
