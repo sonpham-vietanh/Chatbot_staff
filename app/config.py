@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     os_sso_secret: str | None = None
     """Khoá bí mật dùng chung với backend Major OS để ký mã đăng nhập 1 lần (HS256, >= 32 ký tự).
     Để trống = tắt đăng nhập qua Major OS."""
+    os_webhook_url: str | None = None
+    os_webhook_secret: str | None = None
+    """Webhook đẩy sự kiện sử dụng sang Major OS (docs/webhook-major-os.md). Chỉ bật khi đặt CẢ HAI; thiếu một = tắt hoàn toàn."""
     anthropic_api_key: str | None = None
     vault_path: str | None = None
     vault_ready_marker: str | None = None

@@ -67,6 +67,8 @@ class FakeClient:
                 rows = [r for r in rows if self._eval("and" + value, r)]
             elif value.startswith("eq."):
                 rows = [r for r in rows if str(r.get(key)) == value[3:]]
+            elif value.startswith("neq."):
+                rows = [r for r in rows if str(r.get(key)) != value[4:]]
             elif value.startswith("gte."):
                 rows = [r for r in rows if r.get(key) and _parse(r[key]) >= _parse(value[4:])]
         for spec in reversed(params.get("order", "").split(",")):

@@ -1,4 +1,6 @@
 from collections import Counter
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.services.supabase_client import SupabaseClient
@@ -47,4 +49,36 @@ class AnalyticsService:
                 {"question": question_display[key], "count": count}
                 for key, count in question_counter.most_common(limit)
             ],
+        }
+
+    def unanswered(self, days: int = 7, limit: int = 30) -> dict[str, Any]:
+        """Câu bot chưa trả lời được (grounded=false) trong `days` ngày, gộp các câu giống nhau (chữ thường + bỏ dấu),
+        đếm tần suất giảm dần; bỏ câu chào / ngày giờ / cảm ơn / câu dò prompt vì không phải thiếu tài liệu."""
+        from app.rag.lexical_store import fold  # nhập muộn: tránh vòng nhập với pipeline
+        from app.rag.pipeline import JUNK_QUESTION, NO_DOCUMENT_QUESTION
+
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self.client.select("chat_logs", {
+            "select": "question,created_at",
+            "grounded": "eq.false",
+            "created_at": f"gte.{since}",
+            "order": "created_at.desc",
+            "limit": str(MAX_LOGS_SCANNED),
+        })
+        counter: Counter[str] = Counter()
+        display: dict[str, str] = {}
+        last_seen: dict[str, str] = {}
+        for row in rows:
+            question = (row.get("question") or "").strip()
+            key = " ".join(re.sub(r"[^\w\s]", " ", fold(question)).split())  # bỏ dấu câu để "sao?" và "sao ?" gộp chung
+            if not key or JUNK_QUESTION.search(key) or NO_DOCUMENT_QUESTION.match(key):
+                continue
+            counter[key] += 1
+            display.setdefault(key, question)
+            last_seen.setdefault(key, str(row.get("created_at") or ""))  # rows đã sắp mới -> cũ nên lần đầu thấy là mới nhất
+        ranked = sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        return {
+            "days": days,
+            "scanned_logs": len(rows),
+            "questions": [{"question": display[key], "count": count, "last_asked": last_seen[key]} for key, count in ranked],
         }

@@ -366,3 +366,17 @@ def test_profile_service_rejects_invalid_values_directly():
     with pytest.raises(ProfileError):
         profiles.update_self("lan@truongvietanh.com", {"address": "x" * 301})
     assert client.tables["staff_profiles"] == []                                                # lỗi thì không ghi gì
+
+
+def test_change_request_create_rejects_unknown_keys():
+    import pytest
+    from pydantic import ValidationError
+    from app.main import _validation_message
+    from app.models.schemas import ChangeRequestCreate
+
+    ok = ChangeRequestCreate(field="job_title", new_value="Giáo viên", reason="Đổi theo quyết định mới")
+    assert ok.field == "job_title"
+    with pytest.raises(ValidationError) as error:
+        ChangeRequestCreate(field="job_title", new_value="Giáo viên", reason="Đổi theo quyết định", salary="1")
+    message = _validation_message(error.value.errors())
+    assert message.startswith("Dữ liệu chưa hợp lệ")

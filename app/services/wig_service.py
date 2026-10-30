@@ -215,6 +215,54 @@ class WigService:
         lines += ["", "Xem chi tiết ở tab **Nhóm của tôi** trong trang **Hồ sơ**."]
         return "\n".join(lines)
 
+    @staticmethod
+    def _wig_line(wig: dict[str, Any]) -> str:
+        due = f", hạn {wig['due_date']}" if wig.get("due_date") else ""
+        return f"- **{wig['title']}** ({wig['period_label']}): **{format_number(wig['progress'])}%**{due}"
+
+    def chat_overdue(self, owner: str) -> str:
+        """"WIG nào quá hạn": chỉ liệt kê WIG đang chạy đã quá hạn mà chưa đạt mục tiêu."""
+        active = [w for w in self.list_for(owner) if w["status"] == "active"]
+        late = sorted((w for w in active if w.get("overdue")), key=lambda w: str(w["due_date"]))
+        if not late:
+            return "Hiện bạn không có WIG nào quá hạn." if active else "Bạn chưa có WIG nào đang chạy nên chưa có WIG nào quá hạn."
+        return "\n".join([f"Bạn có **{len(late)} WIG quá hạn**:", "", *(self._wig_line(w) for w in late), "", "Cập nhật tiến độ hoặc đóng WIG ở trang **Hồ sơ**."])
+
+    def chat_due_soon(self, owner: str) -> str:
+        """"WIG nào sắp đến hạn nhất": WIG đang chạy còn hạn, gần nhất trước (WIG không có hạn thì bỏ qua)."""
+        active = [w for w in self.list_for(owner) if w["status"] == "active"]
+        today = date.today().isoformat()
+        coming = sorted((w for w in active if w.get("due_date") and not w.get("overdue") and str(w["due_date"]) >= today), key=lambda w: str(w["due_date"]))
+        late = sum(1 for w in active if w.get("overdue"))
+        if not coming:
+            note = f" (đang có **{late} WIG quá hạn**)" if late else ""
+            return ("Bạn chưa có WIG đang chạy nào đặt hạn hoàn thành còn phía trước" if active else "Bạn chưa có WIG nào đang chạy") + note + "."
+        lines = [f"WIG sắp đến hạn nhất: **{coming[0]['title']}**, hạn {coming[0]['due_date']} (đang {format_number(coming[0]['progress'])}%).", ""]
+        if len(coming) > 1:
+            lines += ["Các WIG tiếp theo:", *(self._wig_line(w) for w in coming[1:4])]
+        if late:
+            lines += ["", f"Lưu ý: bạn còn **{late} WIG quá hạn**."]
+        return "\n".join(lines).rstrip()
+
+    def chat_remaining(self, owner: str) -> str:
+        """"Còn bao nhiêu WIG chưa xong": số WIG đang chạy (chưa đạt mục tiêu / đã đạt nhưng chưa đóng)."""
+        active = [w for w in self.list_for(owner) if w["status"] == "active"]
+        if not active:
+            return "Bạn không còn WIG nào đang chạy (chưa xong)."
+        open_ = [w for w in active if w["progress"] < 100]
+        reached = len(active) - len(open_)
+        lines = [f"Bạn còn **{len(open_)} WIG chưa xong**" + (f", và {reached} WIG đã đạt mục tiêu nhưng chưa đóng." if reached else "."), ""]
+        lines += [self._wig_line(w) for w in open_]
+        return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def chat_howto() -> str:
+        return ("Cách nhập WIG:\n"
+                "1. Vào trang **Hồ sơ** (menu bên trái, mục Hồ sơ & WIG), tab **WIG của tôi**, bấm **Thêm WIG**.\n"
+                "2. Điền tên WIG, kỳ (ví dụ Q4/2026), chỉ số đo, giá trị đầu kỳ và **mục tiêu**; hạn hoàn thành và mô tả là tuỳ chọn.\n"
+                f"3. Bấm **Lưu WIG** (tối đa {MAX_ACTIVE_WIGS} WIG đang chạy cùng lúc).\n"
+                "4. Khi có kết quả mới, bấm **Cập nhật tiến độ** ở WIG đó; đạt mục tiêu thì bấm **Hoàn thành**.")
+
     def chat_summary(self, owner: str, display_name: str | None = None) -> str:
         """Câu trả lời cho "WIG của tôi tới đâu rồi?" — lấy thẳng từ cơ sở dữ liệu, không qua mô hình ngôn ngữ."""
         wigs = [w for w in self.list_for(owner) if w["status"] == "active"]

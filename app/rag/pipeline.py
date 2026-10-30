@@ -32,6 +32,7 @@ from app.services.directory_service import DirectoryService
 from app.services.profile_service import ProfileService
 from app.services.wig_service import WigService
 from app.services.usage_service import UsageService
+from app.services.webhook_service import WebhookService
 from app.services.wiki_sync_service import WikiSyncService
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,11 @@ NO_DOCUMENT_QUESTION = re.compile(
 """Chỉ khớp ĐÚNG câu ngày giờ / chào hỏi / cảm ơn (đã bỏ dấu, không kèm nội dung khác): kết quả từ khoá yếu là bình thường,
 không cần nhờ mô hình mở rộng từ khoá. Câu có thêm nội dung ("chào, nghỉ phép mấy ngày") không khớp nên vẫn được mở rộng."""
 GREETING_RE = re.compile(rf"^\s*(?:xin chao|chao|hello|hi|alo)(?:\s+(?:ban|bot|tro ly|em|anh|chi|ad|admin))?{_END}")
+ABOUT_BOT_RE = re.compile(
+    rf"^\s*(?:(?:ban|bot|tro ly|ad)\s+(?:la\s+)?(?:ai|gi)(?:\s+(?:vay|the|day))?"
+    rf"|(?:ban|bot|tro ly)\s+(?:lam duoc gi|giup duoc gi|co the lam gi|co the giup gi|ten gi|ten la gi)"
+    rf"|ai\s+(?:day|vay)){_FILLER}{_END}")
+"""Hỏi "bạn là ai / bot là gì / bạn làm được gì": trả lời giới thiệu ngay, không qua mô hình."""
 THANKS_RE = re.compile(rf"^\s*(?:cam on|thanks|thank you|ok|oke)(?:\s+(?:ban|bot|nhe|nha|nhieu|rat nhieu))*{_END}")
 DATE_RE = re.compile(rf"^\s*(?:hom nay|hien nay|bay gio|hien tai)\s+(?:la\s+)?(?:ngay|thu|thang|nam|may gio){_FILLER}{_END}")
 """Chào hỏi / cảm ơn / hỏi ngày giờ trả lời ngay, không gọi mô hình: nhanh (không xếp hàng sau các câu hỏi nặng) và
@@ -64,6 +70,14 @@ SYNONYM_RULES = (
     (re.compile(r"\bmaternity\b|\bparental\b"), "thai sản sinh con nghỉ"),
     (re.compile(r"\bprobation"), "thử việc 85% lương"),
     (re.compile(r"\bsalary\b|\bbonus\b"), "lương thưởng"),
+    # Viết tắt / cách nói thường. Chữ đã bỏ dấu nên "hđ" = "hd"; "cưới" chỉ khớp khi đi với "nghỉ/đi/xin/đám" để không bắt nhầm "cuối năm", "nghỉ cuối tuần".
+    (re.compile(r"\bhd\b|\bhdld\b"), "hợp đồng lao động"),
+    (re.compile(r"\bot\b"), "overtime làm thêm giờ"),
+    (re.compile(r"\bgt\b"), "giám thị giáo viên"),
+    (re.compile(r"\bgv\b"), "giáo viên"),
+    (re.compile(r"\bvbi\b|\bdam cuoi\b|\bhon le\b|\b(?:nghi|di|xin) cuoi\b(?! (?:tuan|nam|thang|ky|cung))|^cuoi\b(?! (?:tuan|nam|thang|ky|cung))"),
+     "nghỉ kết hôn 3 ngày hôn lễ bảo hiểm VBI"),
+    (re.compile(r"\bthu viec bao lau\b|\bthoi gian thu viec\b"), "thời gian thử việc hợp đồng thử việc Advisory đánh giá kết quả thử việc"),
 )
 KEYWORD_PROMPT = (
     "Bạn giúp tìm tài liệu nhân sự nội bộ của một trường học ở Việt Nam. Từ câu hỏi bên dưới, viết 8–14 từ khoá hoặc cụm từ "
@@ -118,7 +132,8 @@ class AdvancedRAGPipeline:
         self.api_keys = ApiKeyService(self.supabase)
         self.feedback = FeedbackService(self.supabase)
         self.manage = ManageService(self.admin, self.supabase, settings.admin_emails)
-        self.usage = UsageService(self.supabase)
+        self.webhook = WebhookService(getattr(settings, "os_webhook_url", None), getattr(settings, "os_webhook_secret", None))
+        self.usage = UsageService(self.supabase, self.webhook)
         self.report = ReportService(self.supabase)
         self.report_keys = ReportKeyService(self.supabase)
         self.profiles = ProfileService(self.supabase)
@@ -237,23 +252,55 @@ class AdvancedRAGPipeline:
             if "gio" in folded:
                 return f"Mình không xem được đồng hồ nên chưa biết giờ hiện tại. {today}"
             return today
+        if ABOUT_BOT_RE.match(folded):
+            return ("Mình là trợ lý nội bộ của Trường Việt Anh. Mình trả lời nhanh các câu hỏi về chính sách và quy định của trường, "
+                    "nhân sự, lương thưởng, nghỉ phép, WIG và hồ sơ của bạn dựa trên tài liệu đã được HR duyệt. Bạn cứ hỏi thử nhé.")
         return None
+
+    def _llm_inputs(self, question: str, history: list[dict] | None) -> tuple[list[dict], list[dict], list[dict]]:
+        """Phần tìm tài liệu dùng chung cho chat() và chat_stream(): (history cắt gọn, kết quả tìm, đoạn vượt ngưỡng)."""
+        history = (history or [])[-MAX_HISTORY_ITEMS:]
+        results = self.retrieve(question, history)
+        grounded_seeds = [item for item in results if item["score"] >= self.settings.min_relevance_score]
+        return history, results, grounded_seeds
 
     def chat(self, question: str, history: list[dict] | None = None,
              asker_department: str | None = None, asker: str | None = None) -> dict[str, Any]:
         quick = self._quick_reply(question)
         if quick is not None:
             return {"answer": quick, "grounded": False, "citations": []}
-        history = (history or [])[-MAX_HISTORY_ITEMS:]
-        results = self.retrieve(question, history)
-        grounded_seeds = [item for item in results if item["score"] >= self.settings.min_relevance_score]
+        history, results, grounded_seeds = self._llm_inputs(question, history)
         # Chỉ đưa vào prompt đúng những đoạn đã vượt ngưỡng tin cậy (không phải cả top_k=20) —
         # đoạn dưới ngưỡng vốn đã bị hệ thống coi là "chưa đủ liên quan" ở chỗ khác (grounded_seeds),
         # đưa cả vào prompt chỉ làm prompt dài hơn (chậm sinh câu trả lời) mà không thêm độ tin cậy.
-        context_for_llm = grounded_seeds
+        raw_answer = self.llm.answer(question, grounded_seeds, history, asker) if asker else self.llm.answer(question, grounded_seeds, history)
+        return self._finish_answer(question, history, asker_department, results, grounded_seeds, raw_answer)
+
+    def chat_stream(self, question: str, history: list[dict] | None = None,
+                    asker_department: str | None = None, asker: str | None = None):
+        """Như chat() nhưng sinh dần: yield ("delta", chữ thô) rồi cuối cùng ("result", dict) giống hệt chat().
+        Lỗi LLM trước token đầu đã được lớp provider chuyển sang dự phòng; lỗi sau khi đã có chữ thì ném ra cho lớp API."""
+        quick = self._quick_reply(question)
+        if quick is not None:
+            yield "result", {"answer": quick, "grounded": False, "citations": []}
+            return
+        history, results, grounded_seeds = self._llm_inputs(question, history)
+        stream = getattr(self.llm, "answer_stream", None)
+        if stream is None:  # provider cũ/test không có stream: một cục
+            raw_answer = self.llm.answer(question, grounded_seeds, history, asker) if asker else self.llm.answer(question, grounded_seeds, history)
+            yield "delta", raw_answer
+        else:
+            parts: list[str] = []
+            for piece in (stream(question, grounded_seeds, history, asker) if asker else stream(question, grounded_seeds, history)):
+                parts.append(piece)
+                yield "delta", piece
+            raw_answer = "".join(parts).strip() or FALLBACK_ANSWER  # giống llm.answer(): rỗng -> câu từ chối chuẩn
+        yield "result", self._finish_answer(question, history, asker_department, results, grounded_seeds, raw_answer)
+
+    def _finish_answer(self, question: str, history: list[dict], asker_department: str | None,
+                       results: list[dict], grounded_seeds: list[dict], raw_answer: str) -> dict[str, Any]:
         # Chuẩn hoá Unicode về dạng dựng sẵn (NFC): model đôi khi trả tiếng Việt dạng tổ hợp,
         # khi đó "Nguồn"/câu từ chối không khớp chuỗi so sánh dù nhìn giống hệt.
-        raw_answer = self.llm.answer(question, context_for_llm, history, asker) if asker else self.llm.answer(question, context_for_llm, history)
         answer = unicodedata.normalize("NFC", raw_answer)
         # Dòng [Nguồn: ...] luôn bị tách khỏi text hiển thị (citation trả về ở trường riêng),
         # và định dạng luôn được làm sạch ở đây — không để từng giao diện tự xử lý.

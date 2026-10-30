@@ -33,7 +33,12 @@ FEATURES: dict[str, dict[str, str]] = {
     "sua_tri_thuc": {"ten": "Sửa tài liệu tri thức", "mo_ta": "Leader/admin lưu thay đổi một tài liệu."},
     "xoa_tri_thuc": {"ten": "Xoá tài liệu tri thức", "mo_ta": "Leader/admin xoá một tài liệu (vẫn khôi phục được từ lịch sử)."},
     "khoi_phuc_tri_thuc": {"ten": "Khôi phục tài liệu tri thức", "mo_ta": "Leader/admin khôi phục tài liệu về một phiên bản cũ."},
+    "phut_su_dung": {"ten": "Thời gian sử dụng trợ lý", "mo_ta": "Mỗi bản ghi = 1 phút người dùng thật sự đang dùng app (tab đang mở và có thao tác); không tính vào số lượt dùng."},
 }
+MINUTES_FEATURE = "phut_su_dung"
+"""Heartbeat mỗi phút rất nhiều dòng, nên được tách khỏi các chỉ số "lượt dùng" cũ (tong_so_lan, so_nguoi_dung, nguoi_dung_nhieu_nhat)
+và có khối riêng `phut_su_dung` trong summary."""
+MINUTES_SCAN_LIMIT = 20_000
 
 
 ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,80}")
@@ -120,8 +125,9 @@ def keyset_page(client: SupabaseClient, table: str, time_column: str, select: st
 
 
 class UsageService:
-    def __init__(self, client: SupabaseClient):
+    def __init__(self, client: SupabaseClient, webhook: Any = None):
         self.client = client
+        self.webhook = webhook  # WebhookService (tắt khi thiếu cấu hình) hoặc None
 
     # ---- ghi ----
     def log(self, feature: str, user: dict[str, Any] | None = None, meta: dict[str, Any] | None = None, count: int = 1) -> None:
@@ -131,16 +137,37 @@ class UsageService:
             metadata = (user or {}).get("user_metadata") or {}
             name = profile.get("display_name") or metadata.get("display_name") or metadata.get("full_name") or metadata.get("name")
             email = (user or {}).get("email")
-            self.client.insert("usage_events", [{
+            stored = self.client.insert("usage_events", [{
                 "user_id": (user or {}).get("id"),
                 "user_email": email.strip().casefold() if email else None,
                 "user_name": name,
                 "feature": feature,
                 "quantity": count,
                 "meta": meta or {},
-            }], returning=False)
+            }])
         except Exception:
             logger.warning("Không ghi được sự kiện sử dụng %s", feature, exc_info=True)
+            return
+        self._notify_webhook(stored, feature, email, name, count, meta)
+
+    def _notify_webhook(self, stored: Any, feature: str, email: str | None, name: str | None, count: int, meta: dict[str, Any] | None) -> None:
+        """Đẩy sự kiện vừa ghi sang Major OS (nếu bật). Không bao giờ ném lỗi."""
+        try:
+            if self.webhook is None or not self.webhook.enabled or not stored:
+                return
+            row = stored[0]
+            event = {
+                "id": row["id"],
+                "tinh_nang": feature,
+                "thoi_diem": to_vn(row.get("occurred_at")) or to_vn(datetime.now(timezone.utc).isoformat()),
+                "nguoi_dung": {"email": email.strip().casefold(), "ten": name} if email else None,
+                "so_luong": count,
+                "chi_tiet": {k: v for k, v in (meta or {}).items() if k in EXPORTED_META_KEYS},
+            }
+            # Heartbeat mỗi phút: gộp, mỗi 5 phút/người mới gửi 1 webhook (so_luong = số phút đã dồn).
+            self.webhook.notify(event, coalesce_key=(email or "").casefold() if feature == MINUTES_FEATURE and email else None)
+        except Exception:
+            logger.warning("Không đẩy được webhook cho sự kiện %s", feature, exc_info=True)
 
     # ---- đọc ----
     @staticmethod
@@ -169,7 +196,8 @@ class UsageService:
         cursor = None
         while len(rows) < SUMMARY_SCAN_LIMIT:
             page, cursor = keyset_page(self.client, "usage_events", "occurred_at", "id,occurred_at,user_email,user_name,feature,quantity,meta",
-                                       tu=tu, den=den, cursor=cursor, limit=MAX_PAGE_SIZE)
+                                       tu=tu, den=den, cursor=cursor, limit=MAX_PAGE_SIZE,
+                                       extra={"feature": f"neq.{MINUTES_FEATURE}"})  # phút sử dụng tính riêng bên dưới
             rows += page
             if not cursor:
                 break
@@ -196,14 +224,53 @@ class UsageService:
             for key, data in by_feature.items()
         ]
         features.sort(key=lambda item: -item["so_lan"])
+        minutes = self.minutes_summary(tu=tu, den=den, top=top)
+        total_uses = sum(item["so_lan"] for item in features)  # chưa tính phút: tong_so_lan giữ nghĩa cũ (lượt dùng)
         # Tính năng chưa có lượt nào vẫn phải hiện (so_lan = 0) để Major OS thấy "tính năng nào ít ai dùng".
+        features.append({"tinh_nang": MINUTES_FEATURE, "ten": FEATURES[MINUTES_FEATURE]["ten"], "so_lan": minutes["tong_phut"], "so_nguoi": minutes["so_nguoi_co_hoat_dong"]})
         known = {item["tinh_nang"] for item in features}
         features += [{"tinh_nang": key, "ten": info["ten"], "so_lan": 0, "so_nguoi": 0} for key, info in FEATURES.items() if key not in known]
         return {
-            "tong_so_lan": sum(item["so_lan"] for item in features),
+            "tong_so_lan": total_uses,
             "so_nguoi_dung": len({e for data in by_feature.values() for e in data["nguoi"]}),
             "ty_le_tra_loi_duoc": round(answered / asked, 3) if asked else None,
             "theo_tinh_nang": features,
             "nguoi_dung_nhieu_nhat": sorted(by_user.values(), key=lambda item: -item["so_lan"])[:top],
             "bi_cat_bot": truncated,
+            "phut_su_dung": minutes,
+        }
+
+    def minutes_summary(self, *, tu: datetime | None, den: datetime | None, top: int = 20) -> dict[str, Any]:
+        """Phút sử dụng: tổng, số người, trung bình/người, top người dùng và theo ngày (giờ VN). Quét tối đa MINUTES_SCAN_LIMIT dòng."""
+        tu = tu or (datetime.now(timezone.utc) - timedelta(days=SUMMARY_DEFAULT_DAYS))
+        rows: list[dict[str, Any]] = []
+        cursor = None
+        while len(rows) < MINUTES_SCAN_LIMIT:
+            page, cursor = keyset_page(self.client, "usage_events", "occurred_at", "id,occurred_at,user_email,user_name,quantity",
+                                       tu=tu, den=den, cursor=cursor, limit=MAX_PAGE_SIZE, extra={"feature": f"eq.{MINUTES_FEATURE}"})
+            rows += page
+            if not cursor:
+                break
+        by_user: dict[str, dict[str, Any]] = {}
+        by_day: dict[str, dict[str, Any]] = {}
+        total = 0
+        for row in rows:
+            n = row.get("quantity") or 1
+            total += n
+            day = (to_vn(row["occurred_at"]) or "")[:10]
+            slot = by_day.setdefault(day, {"ngay": day, "so_phut": 0, "nguoi": set()})
+            slot["so_phut"] += n
+            email = row.get("user_email")
+            if email:
+                slot["nguoi"].add(email)
+                person = by_user.setdefault(email, {"email": email, "ten": row.get("user_name"), "so_phut": 0})
+                person["so_phut"] += n
+                person["ten"] = person["ten"] or row.get("user_name")
+        return {
+            "tong_phut": total,
+            "so_nguoi_co_hoat_dong": len(by_user),
+            "phut_trung_binh_moi_nguoi": round(total / len(by_user), 1) if by_user else 0,
+            "nguoi_dung_nhieu_nhat": sorted(by_user.values(), key=lambda item: -item["so_phut"])[:top],
+            "theo_ngay": [{"ngay": d["ngay"], "so_phut": d["so_phut"], "so_nguoi": len(d["nguoi"])} for d in sorted(by_day.values(), key=lambda d: d["ngay"])],
+            "bi_cat_bot": bool(cursor),
         }

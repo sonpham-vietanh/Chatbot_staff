@@ -1,7 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 import hashlib
+import itertools
+import json
 import logging
 import re
 import secrets
@@ -11,7 +13,7 @@ from typing import Any, Literal, get_args
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pathlib import Path
 
 from app.config import Settings, get_settings
@@ -21,6 +23,7 @@ from app.models.schemas import (
     ApiKeyCreateRequest,
     ApiKeyOut,
     AuthResponse,
+    HeartbeatRequest,
     ChangeRequestCreate,
     ChangeRequestReviewRequest,
     ChatRequest,
@@ -290,6 +293,55 @@ def health(rag: RAGService = Depends(get_rag_service)) -> dict[str, str | int]:
     return value
 
 
+@router.get("/health/deep", dependencies=[Depends(require_admin)])
+def health_deep(rag: RAGService = Depends(get_rag_service), settings: Settings = Depends(get_settings)) -> dict[str, Any]:
+    """Kiểm tra sâu cho admin/giám sát (KHÔNG dành cho Docker healthcheck): DB đọc được, chỉ mục BM25, cấu hình LLM, lần đồng bộ wiki.
+    Mỗi mục lỗi hoặc đáng ngờ thêm 1 câu vào "canh_bao"; ok=false khi DB hỏng, chỉ mục rỗng hoặc chưa có LLM nào."""
+    warnings: list[str] = []
+    checks: dict[str, Any] = {}
+    try:
+        started = time.monotonic()
+        rag.supabase.select("knowledge_notes", {"select": "id", "limit": "1"})
+        checks["db"] = {"ok": True, "ms": round((time.monotonic() - started) * 1000)}
+    except Exception as error:  # noqa: BLE001
+        checks["db"] = {"ok": False}
+        warnings.append(f"Không đọc được cơ sở dữ liệu ({type(error).__name__}).")
+    index_info = getattr(getattr(rag, "vector_store", None), "info", None)
+    if callable(index_info):
+        info = index_info()
+        age = info.get("age_seconds")
+        checks["index"] = {"ok": info["chunks"] > 0, "chunks": info["chunks"], "age_seconds": age}
+        if info["chunks"] == 0:
+            warnings.append("Chỉ mục tìm kiếm BM25 chưa nạp đoạn nào (chưa khởi động xong hoặc chưa có tài liệu đã duyệt).")
+        elif age is not None and age > 3600:
+            warnings.append(f"Chỉ mục tìm kiếm đã {age // 60} phút chưa làm mới.")
+    else:
+        checks["index"] = {"ok": True, "ghi_chu": "Không dùng chỉ mục BM25 (chế độ vector)."}
+    has_claude = bool(getattr(settings, "llm_api_key", None) and getattr(settings, "llm_base_url", None))
+    has_openrouter = bool(getattr(settings, "openrouter_api_key", None))
+    primary = has_claude or has_openrouter or bool(getattr(settings, "gemini_api_key", None))
+    fallback = (has_claude and has_openrouter) or (has_claude and bool(getattr(settings, "llm_fallback_model", None)))
+    checks["llm"] = {"ok": primary, "chinh": primary, "du_phong": fallback}
+    if not primary:
+        warnings.append("Chưa cấu hình LLM chính (thiếu LLM_API_KEY/LLM_BASE_URL hoặc khoá OpenRouter/Gemini).")
+    elif not fallback:
+        warnings.append("Chưa có LLM dự phòng; LLM chính lỗi là bot ngừng trả lời.")
+    try:
+        latest = rag.supabase.select("knowledge_notes", {"select": "updated_at", "created_by": "eq.WikiSync", "order": "updated_at.desc", "limit": "1"})
+        stamp = parse_time(latest[0]["updated_at"], "updated_at") if latest and latest[0].get("updated_at") else None
+        minutes = round((datetime.now(timezone.utc) - stamp).total_seconds() / 60) if stamp else None
+        checks["wiki_sync"] = {"minutes_since_last_update": minutes}
+        if minutes is None:
+            warnings.append("Không xác định được lần đồng bộ wiki gần nhất.")
+        elif minutes > 24 * 60:
+            warnings.append(f"Lần cập nhật note từ wiki gần nhất cách đây {minutes // 60} giờ (có thể chỉ là wiki không đổi).")
+    except Exception:  # noqa: BLE001
+        checks["wiki_sync"] = {"minutes_since_last_update": None}
+        warnings.append("Không lấy được thời điểm đồng bộ wiki.")
+    ok = checks["db"]["ok"] and checks["index"]["ok"] and checks["llm"]["ok"]
+    return {"ok": ok, "canh_bao": warnings, "checks": checks}
+
+
 @router.get("/auth/config")
 def auth_config(settings: Settings = Depends(get_settings)) -> dict[str, str | bool | None]:
     """Public Supabase Auth config only; the anon key is designed for browser use."""
@@ -426,20 +478,37 @@ def _persist_chat_turn(
         if is_new_thread or not history.thread_belongs_to(thread_id, user_id):
             # Mã do client tự tạo ở lượt đầu cũng được nhận. Mã đã thuộc người khác thì tạo thất bại (trùng khoá) -> nhảy xuống
             # except, không ghi gì: không bao giờ ghi nhầm vào cuộc trò chuyện của người khác.
-            history.create_thread_with_id(thread_id, user_id, question.strip()[:60])
+            # Tin đầu chỉ là lời chào thì để tiêu đề mặc định ("Cuộc trò chuyện mới") thay vì "chào".
+            title = "" if GREETING_ONLY.match(question) else question.strip()[:60]
+            history.create_thread_with_id(thread_id, user_id, title)
         history.add_turn(thread_id, question, answer)
     except Exception:
         pass
 
 
-def _log_chat(supabase, question: str, result: dict[str, Any]) -> None:
+_CHAT_LOGS_HAS_USER: bool | None = None
+"""None = chưa biết, True = cột user_email có, False = chưa chạy migration 20261029000000 (nhớ tới khi restart app, khỏi thử lại mỗi lượt)."""
+
+
+def _log_chat(supabase, question: str, result: dict[str, Any], user_email: str | None = None) -> None:
+    global _CHAT_LOGS_HAS_USER
+    row = {
+        "question": question,
+        "answer": result["answer"],
+        "grounded": result["grounded"],
+        "citations": result["citations"],
+    }
     try:
-        supabase.insert("chat_logs", [{
-            "question": question,
-            "answer": result["answer"],
-            "grounded": result["grounded"],
-            "citations": result["citations"],
-        }], returning=False)
+        if user_email and _CHAT_LOGS_HAS_USER is not False:
+            try:
+                supabase.insert("chat_logs", [{**row, "user_email": user_email}], returning=False)
+                _CHAT_LOGS_HAS_USER = True
+                return
+            except Exception as error:
+                if not _is_schema_error(error):
+                    return  # lỗi tạm thời: bỏ lượt log này, không thử lại (best-effort)
+                _CHAT_LOGS_HAS_USER = False  # thiếu cột -> ghi lại không kèm user_email
+        supabase.insert("chat_logs", [row], returning=False)
     except Exception:
         pass  # log chat là best-effort, không được làm hỏng câu trả lời cho user
 
@@ -464,6 +533,51 @@ def _track(background_tasks: BackgroundTasks, rag: Any, feature: str, user: dict
         background_tasks.add_task(usage.log, feature, user, meta)
 
 
+HEARTBEAT_MIN_GAP_SECONDS = 50.0
+HEARTBEAT_DAILY_CAP = 600
+HEARTBEAT_MAX_ENTRIES = 2000
+"""Chống đếm quá: mỗi người tối đa 1 heartbeat/50 giây và 600 phút/ngày (giờ VN). Bộ nhớ theo từng worker (4 worker => sai số nhỏ
+chấp nhận được), có giới hạn kích thước như _USER_CACHE: đầy thì xoá các mục của ngày cũ rồi mục cũ nhất."""
+_HEARTBEATS: dict[str, list] = {}  # user_id -> [lần tính gần nhất (monotonic), ngày VN, số phút trong ngày]
+_HEARTBEAT_LOCK = threading.Lock()
+
+
+def _heartbeat_counts(user_id: str) -> bool:
+    now = time.monotonic()
+    today = datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d")
+    with _HEARTBEAT_LOCK:
+        slot = _HEARTBEATS.get(user_id)
+        if slot is None:
+            if len(_HEARTBEATS) >= HEARTBEAT_MAX_ENTRIES:
+                for key in [k for k, v in _HEARTBEATS.items() if v[1] != today]:
+                    del _HEARTBEATS[key]
+                while len(_HEARTBEATS) >= HEARTBEAT_MAX_ENTRIES:
+                    del _HEARTBEATS[min(_HEARTBEATS, key=lambda k: _HEARTBEATS[k][0])]
+            slot = _HEARTBEATS[user_id] = [now - HEARTBEAT_MIN_GAP_SECONDS - 1, today, 0]
+        if slot[1] != today:
+            slot[1], slot[2] = today, 0
+        if now - slot[0] < HEARTBEAT_MIN_GAP_SECONDS or slot[2] >= HEARTBEAT_DAILY_CAP:
+            return False
+        slot[0], slot[2] = now, slot[2] + 1
+        return True
+
+
+@router.post("/usage/heartbeat")
+def usage_heartbeat(
+    background_tasks: BackgroundTasks,
+    body: HeartbeatRequest | None = None,
+    user: dict = Depends(require_user),
+    rag: RAGService = Depends(get_rag_service),
+) -> dict[str, bool]:
+    """Frontend gọi mỗi 60 giây khi tab đang hiển thị và người dùng có thao tác: mỗi lần được tính = 1 phút sử dụng."""
+    user_id = user.get("id") or user.get("email")
+    if not user_id or not _heartbeat_counts(str(user_id)):
+        return {"counted": False}
+    session = re.sub(r"[^A-Za-z0-9_-]", "", (body.session_id or "")) if body else ""
+    _track(background_tasks, rag, "phut_su_dung", user, {"phien": session[:64]} if session else None)
+    return {"counted": True}
+
+
 WIG_WORD = re.compile(r"\bwigs?\b", re.IGNORECASE)
 OTHER_PERSON_WIG = re.compile(r"\bwigs?\s+(?:của|cua)\s+(?!tôi|toi|mình|minh|em\b|tui)", re.IGNORECASE)
 WIG_CONCEPT = re.compile(r"\b(là gì|nghĩa là|la gi|định nghĩa|dinh nghia)\b", re.IGNORECASE)
@@ -471,6 +585,12 @@ TEAM_WORD = re.compile(r"\b(?:team|nhom|cap duoi|nhan vien cua toi|nhan vien cua
 WIG_DONE = re.compile(r"\b(?:da hoan thanh|hoan thanh\b.{0,15}\b(?:nao|chua)|da xong|da dat)\b")
 WIG_DROPPED = re.compile(r"\b(?:huy|da bo|bi bo|bo qua)\b")
 WIG_REMIND = re.compile(r"\b(?:nhac|nhac nho)\b")
+WIG_OVERDUE = re.compile(r"\b(?:qua han|tre han|tre deadline)\b")
+WIG_DUE_SOON = re.compile(r"\b(?:sap (?:den |toi )?han|gan (?:den )?han|han (?:gan|som) nhat|sap het han)\b")
+WIG_REMAINING = re.compile(r"\b(?:chua (?:xong|hoan thanh|dat)|con (?:bao nhieu|may)\b.{0,12}\bwigs?\b.{0,12}\b(?:xong|hoan thanh))\b")
+WIG_HOWTO = re.compile(
+    r"\b(?:cach|huong dan|lam sao|lam the nao|nhu the nao|the nao)\b.{0,25}\b(?:nhap|them|tao|dang ky|khai bao)\b.{0,15}\bwigs?\b"
+    r"|\bwigs?\b.{0,15}\b(?:nhap|them|tao|khai bao)\b.{0,12}\b(?:o dau|the nao|sao|ra sao|kieu gi)\b|\b(?:nhap|them|tao) wigs? (?:o dau|the nao|sao)\b")
 
 
 def _own_wig_answer(rag: Any, user: dict, question: str) -> dict | None:
@@ -482,6 +602,8 @@ def _own_wig_answer(rag: Any, user: dict, question: str) -> dict | None:
         return None
     folded = fold(question)
     team = bool(TEAM_WORD.search(folded))
+    if WIG_HOWTO.search(folded):
+        return {"answer": wigs.chat_howto(), "grounded": True, "citations": []}
     if not team and (OTHER_PERSON_WIG.search(question) or WIG_CONCEPT.search(question)):
         return None
     email = user.get("email") or ""
@@ -491,6 +613,12 @@ def _own_wig_answer(rag: Any, user: dict, question: str) -> dict | None:
         elif WIG_REMIND.search(folded):
             text = ("Mình chưa có tính năng nhắc nhở tự động. Bạn cập nhật tiến độ ở trang **Hồ sơ**; khi cần cứ hỏi "
                     "\"WIG của tôi tới đâu rồi\" mình sẽ báo lại ngay.")
+        elif WIG_OVERDUE.search(folded):
+            text = wigs.chat_overdue(email)
+        elif WIG_DUE_SOON.search(folded):
+            text = wigs.chat_due_soon(email)
+        elif WIG_REMAINING.search(folded):
+            text = wigs.chat_remaining(email)
         elif WIG_DROPPED.search(folded):
             text = wigs.chat_view(email, "dropped")
         elif WIG_DONE.search(folded):
@@ -512,7 +640,16 @@ OWN_TEAM_Q = re.compile(
     r"|\bai\b.{0,15}\bbao cao cho (?:toi|minh)\b|\bnhan vien cua (?:toi|minh)\b|\bteam cua (?:toi|minh)\b.{0,15}\bgom\b")
 SELF_PRONOUN = re.compile(r"\b(?:toi|tui|minh|em)\b")
 OTHER_PERSON = re.compile(r"\b(?:cua|chi|anh|ong|thay)\s+(?!toi\b|tui\b|minh\b|em\b)[a-z]{2,}")
-POLICY_WORDS = re.compile(r"\b(?:phep|luong|thuong|bao hiem|bhxh|hop dong|thu viec|nghi|hoc bong|quy dinh|duoc bao nhieu)\b")
+POLICY_WORDS = re.compile(
+    r"\b(?:phep|luong|thuong|bao hiem|bhxh|hop dong|thu viec|nghi|hoc bong|quy dinh|duoc bao nhieu|cach tinh|cong thuc|review|danh gia|kpi|hieu qua|nhan xet)\b"
+    r"|\btinh\b.{0,10}\b(?:the nao|ra sao)\b")
+OTHER_REF = re.compile(r"\b(?:sep|quan ly|giam doc|hieu truong|truong phong|pho phong|dong nghiep|nguoi khac)\b")
+PERSON_TITLE = re.compile(r"(?<!dia )\b(?:chi|anh|ong|thay)\s+(?!toi\b|tui\b|minh\b|em\b)[a-z]{2,}")
+PASSWORD_Q = re.compile(r"\bmat khau\b")
+MAIL_WORD = re.compile(r"\b(?:email|mail|gmail)\b")
+MANAGER_ASK = re.compile(r"\b(?:sep|quan ly truc tiep)\b.{0,15}\b(?:la ai|ten gi|ten la)\b|\bai la (?:sep|quan ly truc tiep)\b")
+CLAUSE_SPLIT = re.compile(r"[,;.?!]| va | roi | con | thi ")
+GREETING_ONLY = re.compile(r"^\s*(?:xin chào|chào bạn|chào em|chào bot|chào|hello|hey|alo|hi)\W*$", re.IGNORECASE)
 PRIVATE_Q = re.compile(r"\b(?:so dien thoai|sdt|sinh nhat|ngay sinh|dia chi|zalo|email)\b")
 FIELD_RULES = (
     ("job_title", re.compile(r"\b(?:chuc danh|chuc vu|vi tri cong viec)\b")),
@@ -541,6 +678,28 @@ def _profile_rows(profile: dict, keys: list[str]) -> list[tuple[str, Any]]:
     return [row for key in keys for row in table[key]]
 
 
+PRIVATE_OTHERS_REFUSAL = ("Số điện thoại, email, địa chỉ... cá nhân của người khác là thông tin riêng tư nên mình không cung cấp trong chat. "
+                          "Bạn liên hệ qua kênh nội bộ của trường hoặc nhờ HR nhé.")
+
+
+def _others_private_answer(rag: Any, email: str, folded: str) -> dict:
+    """Hỏi thông tin riêng tư của sếp/người khác: không trả thông tin của chính người hỏi; câu hỗn hợp vẫn trả phần trả lời được
+    (tên quản lý trực tiếp) và chỉ từ chối đúng phần xin thông tin riêng tư."""
+    parts: list[str] = []
+    refused = False
+    for clause in (c.strip() for c in CLAUSE_SPLIT.split(folded)):
+        if PRIVATE_Q.search(clause):
+            refused = True
+        elif MANAGER_ASK.search(clause) and getattr(rag, "profiles", None) is not None:
+            manager = rag.profiles.get(email).get("manager") or {}
+            name = manager.get("display_name") or manager.get("email")
+            if name:
+                parts.append(f"Quản lý trực tiếp của bạn: **{name}**.")
+    if refused or not parts:
+        parts.append(PRIVATE_OTHERS_REFUSAL)
+    return {"answer": "\n\n".join(parts), "grounded": True, "citations": []}
+
+
 def _own_info_answer(rag: Any, user: dict, question: str) -> dict | None:
     """"Hồ sơ / điểm / chức danh / sếp / ngày vào làm / cấp dưới của tôi": trả lời từ dữ liệu của CHÍNH người hỏi, không qua mô hình.
     Chỉ nêu thông tin công việc do HR quản lý (không có ngày sinh, địa chỉ, số điện thoại... — câu hỏi và câu trả lời của chat được lưu
@@ -551,6 +710,11 @@ def _own_info_answer(rag: Any, user: dict, question: str) -> dict | None:
     short = len(folded.split()) <= 10
     is_self = bool(SELF_PRONOUN.search(folded)) and not OTHER_PERSON.search(folded) and short and not POLICY_WORDS.search(folded)
     try:
+        if PASSWORD_Q.search(folded) and MAIL_WORD.search(folded):   # quên mật khẩu email: việc hỗ trợ của IT, không phải tra thông tin cá nhân
+            return {"answer": "Quên hoặc đổi mật khẩu email công ty là việc của bộ phận IT, mình không xem hay đặt lại được mật khẩu. "
+                              "Bạn liên hệ IT của trường để được hỗ trợ nhé.", "grounded": True, "citations": []}
+        if PRIVATE_Q.search(folded) and (OTHER_REF.search(folded) or PERSON_TITLE.search(folded)):   # "sếp em email gì": hỏi người khác, không phải email của chính mình
+            return _others_private_answer(rag, email, folded)
         if OWN_POINTS_Q.search(folded) and getattr(rag, "points", None) is not None:
             summary = rag.points.summary(email, recent=3)
             lines = [f"Bạn đang có **{summary['total']} điểm** đóng góp."]
@@ -571,7 +735,7 @@ def _own_info_answer(rag: Any, user: dict, question: str) -> dict | None:
             return {"answer": "Đây là thông tin riêng tư nên mình không hiển thị trong chat. Bạn xem và sửa ở trang **Hồ sơ**.",
                     "grounded": True, "citations": []}
         keys = [key for key, pattern in FIELD_RULES if pattern.search(folded)] if is_self else []
-        wants_all = bool(OWN_PROFILE_Q.search(folded))
+        wants_all = bool(OWN_PROFILE_Q.search(folded)) and not POLICY_WORDS.search(folded)   # "phép thâm niên của em tính thế nào" là hỏi quy định
         if (keys or wants_all) and getattr(rag, "profiles", None) is not None:
             profile = rag.profiles.get(email)
             if not profile.get("in_directory"):
@@ -592,6 +756,19 @@ def _own_info_answer(rag: Any, user: dict, question: str) -> dict | None:
     except Exception:  # noqa: BLE001 — chưa chạy migration hoặc DB lỗi: để đường hỏi đáp thường trả lời
         logger.warning("Không đọc được hồ sơ/điểm cho chatbot", exc_info=True)
     return None
+
+
+REPEATED_NOTICE = re.compile(r"chưa (?:có|thấy)[^.]{0,30}danh bạ|chưa chốt", re.IGNORECASE)
+
+
+def _with_no_repeat_note(asker: str | None, turns: list[dict], question: str, quick: Any) -> str | None:
+    """Câu "chưa có trong danh bạ" / "HR chưa chốt" đã nói ở lượt trước của cuộc trò chuyện này thì dặn mô hình không lặp lại."""
+    if quick is not None and quick(question) is not None:
+        return asker
+    if not any(t.get("role") == "assistant" and REPEATED_NOTICE.search(str(t.get("content", ""))) for t in turns):
+        return asker
+    note = "- Lưu ý: ở lượt trước đã báo 'chưa có trong danh bạ' / 'HR chưa chốt' rồi, lần này không nhắc lại câu đó nữa trừ khi người hỏi hỏi thẳng."
+    return asker + "\n" + note if asker else note
 
 
 ASKER_CACHE_SECONDS = 180.0
@@ -672,6 +849,20 @@ def _stored_history(history: ChatHistoryService, thread_id: str, user_id: str) -
     return [{"role": row["role"], "content": str(row["content"])[:MAX_TURN_CHARS]} for row in rows[-MAX_HISTORY_ITEMS:] if row.get("role") in ("user", "assistant")]
 
 
+def _chat_llm_inputs(request: ChatRequest, user: dict, rag: Any, history: ChatHistoryService, thread_id: str) -> tuple[list[dict], dict]:
+    """Lịch sử + ngữ cảnh người hỏi cho lời gọi rag.chat — dùng chung cho /chat-staff và /chat-staff/stream."""
+    turns = [turn.model_dump() for turn in request.history]
+    if not turns and request.thread_id:
+        turns = _stored_history(history, thread_id, user["id"])
+    extra = {}
+    quick = getattr(rag, "_quick_reply", None)
+    asker = None if (quick is not None and quick(request.question) is not None) else _asker_context(rag, user)
+    asker = _with_no_repeat_note(asker, turns, request.question, quick)
+    if asker:
+        extra["asker"] = asker
+    return turns, extra
+
+
 @router.post("/chat-staff", response_model=ChatResponse)
 def chat_staff(
     request: ChatRequest,
@@ -685,14 +876,7 @@ def chat_staff(
     department, _role = _viewer_department_role(user)
     result = _own_wig_answer(rag, user, request.question) or _own_info_answer(rag, user, request.question)
     if result is None:
-        turns = [turn.model_dump() for turn in request.history]
-        if not turns and request.thread_id:
-            turns = _stored_history(history, thread_id, user["id"])
-        extra = {}
-        quick = getattr(rag, "_quick_reply", None)
-        asker = None if (quick is not None and quick(request.question) is not None) else _asker_context(rag, user)
-        if asker:
-            extra["asker"] = asker
+        turns, extra = _chat_llm_inputs(request, user, rag, history, thread_id)
         try:
             result = rag.chat(request.question, turns, asker_department=department, **extra)
         except Exception as error:
@@ -707,9 +891,85 @@ def chat_staff(
     background_tasks.add_task(
         _persist_chat_turn, history, thread_id, is_new_thread, user["id"], request.question, result["answer"]
     )
-    background_tasks.add_task(_log_chat, rag.supabase, request.question, result)
+    background_tasks.add_task(_log_chat, rag.supabase, request.question, result, user.get("email"))
     _track(background_tasks, rag, "hoi_dap", user, {"tra_loi_duoc": bool(result["grounded"]), "so_nguon": len(result["citations"])})
     return ChatResponse(**result, thread_id=thread_id)
+
+
+# ---------------------------------------------------------------------------
+# Chat dạng stream (SSE): cùng luật với /chat-staff nhưng chữ hiện dần. Sự kiện:
+#   delta {text}  — mẩu chữ thô để hiển thị tạm (còn thẻ [Nguồn: ...], chưa làm sạch định dạng)
+#   done  {...}   — đủ trường như ChatResponse; bản CHUẨN thay hoàn toàn chữ tạm
+#   error {detail, status} — lỗi SAU khi đã có chữ (lỗi trước đó trả HTTP lỗi như /chat-staff)
+STREAM_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}  # chống proxy đệm
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _chat_error(error: Exception) -> HTTPException:
+    message = str(error)
+    if "API_KEY_INVALID" in message or "API key not valid" in message:
+        return HTTPException(status_code=503, detail="API key không hợp lệ hoặc đã bị thu hồi. Hãy cập nhật trong .env rồi restart backend.")
+    return _llm_failure(error)
+
+
+def _chat_events(rag: Any, question: str, turns: list[dict], department: str | None, extra: dict):
+    """Chuỗi ("delta", chữ) ... ("result", dict). RAG không có chat_stream (test/bản cũ) thì cả câu là một sự kiện."""
+    stream = getattr(rag, "chat_stream", None)
+    if stream is None:
+        yield "result", rag.chat(question, turns, asker_department=department, **extra)
+        return
+    yield from stream(question, turns, asker_department=department, **extra)
+
+
+@router.post("/chat-staff/stream")
+def chat_staff_stream(
+    request: ChatRequest,
+    user: dict = Depends(require_user),
+    rag: RAGService = Depends(get_rag_service),
+    history: ChatHistoryService = Depends(get_chat_history_service),
+) -> StreamingResponse:
+    is_new_thread = not request.thread_id
+    thread_id = (request.thread_id or str(uuid.uuid4())).lower()
+    department, _role = _viewer_department_role(user)
+    tasks = BackgroundTasks()  # tự quản: chạy sau khi luồng đóng (giống BackgroundTasks của /chat-staff)
+
+    def finish(result: dict) -> dict:
+        result = {**result, "suggestions": suggest_followups(request.question, result["answer"])}
+        tasks.add_task(_persist_chat_turn, history, thread_id, is_new_thread, user["id"], request.question, result["answer"])
+        tasks.add_task(_log_chat, rag.supabase, request.question, result)
+        _track(tasks, rag, "hoi_dap", user, {"tra_loi_duoc": bool(result["grounded"]), "so_nguon": len(result["citations"])})
+        return ChatResponse(**result, thread_id=thread_id).model_dump(mode="json")
+
+    def respond(events) -> StreamingResponse:
+        return StreamingResponse(events, media_type="text/event-stream", headers=STREAM_HEADERS, background=tasks)
+
+    result = _own_wig_answer(rag, user, request.question) or _own_info_answer(rag, user, request.question)
+    if result is not None:  # trả lời từ hồ sơ/WIG: tức thì, một sự kiện
+        return respond(iter([_sse("done", finish(result))]))
+    turns, extra = _chat_llm_inputs(request, user, rag, history, thread_id)
+    source = _chat_events(rag, request.question, turns, department, extra)
+    try:
+        first = next(source, None)  # lỗi trước chữ đầu tiên -> HTTP lỗi y như /chat-staff (client rơi về hoặc báo lỗi)
+    except Exception as error:
+        raise _chat_error(error) from error
+
+    def events():
+        try:
+            for kind, payload in itertools.chain([first] if first else [], source):
+                if kind == "delta":
+                    if payload:
+                        yield _sse("delta", {"text": payload})
+                else:
+                    yield _sse("done", finish(payload))
+                    return
+        except Exception as error:  # đã có chữ hiện cho người dùng rồi mới lỗi: báo rõ, không ghi lịch sử
+            failure = _chat_error(error)
+            yield _sse("error", {"detail": f"Câu trả lời bị gián đoạn giữa chừng. {failure.detail}", "status": failure.status_code})
+
+    return respond(events())
 
 
 @router.post("/widget/chat", response_model=ChatResponse)
@@ -1192,6 +1452,12 @@ def admin_analytics(rag: RAGService = Depends(get_rag_service)) -> dict[str, obj
     return rag.analytics.summary()
 
 
+@router.get("/admin/unanswered", dependencies=[Depends(require_admin)])
+def admin_unanswered(days: int = Query(default=7, ge=1, le=90), limit: int = Query(default=30, ge=1, le=200), rag: RAGService = Depends(get_rag_service)) -> dict[str, object]:
+    """Câu hỏi bot chưa trả lời được (grounded=false), gộp câu giống nhau, nhiều nhất trước — gợi ý tài liệu cần bổ sung."""
+    return rag.analytics.unanswered(days=days, limit=limit)
+
+
 @router.get("/admin/api-keys", response_model=list[ApiKeyOut], dependencies=[Depends(require_admin)])
 def admin_list_api_keys(api_keys: ApiKeyService = Depends(get_api_key_service)) -> list[dict[str, object]]:
     return api_keys.list_keys()
@@ -1378,6 +1644,23 @@ def report_summary(
 ) -> JSONResponse:
     tu_dt, den_dt = _report_range(tu, den)
     return JSONResponse({**_report_call(usage.summary, tu=tu_dt, den=den_dt), "gio_may_chu": _server_time()}, headers=NO_STORE)
+
+
+# ---- webhook sang Major OS + thống kê phút (admin token) ----
+@router.post("/admin/webhook/test", dependencies=[Depends(require_admin)])
+def admin_webhook_test(rag: RAGService = Depends(get_rag_service)) -> JSONResponse:
+    """Gửi 1 sự kiện thử `thu_ket_noi` tới OS_WEBHOOK_URL; trả mã phản hồi của Major OS (không lộ secret/URL đầy đủ)."""
+    webhook = getattr(rag, "webhook", None)
+    if webhook is None or not webhook.enabled:
+        raise HTTPException(status_code=409, detail="Chưa cấu hình OS_WEBHOOK_URL và OS_WEBHOOK_SECRET.")
+    status = webhook.send_test()
+    return JSONResponse({"ok": status is not None and 200 <= status < 300, "ma_phan_hoi": status,
+                         "ghi_chu": None if status is not None else "Không kết nối được tới Major OS (lỗi mạng/quá thời gian)."}, headers=NO_STORE)
+
+
+@router.get("/admin/usage-minutes", dependencies=[Depends(require_admin)])
+def admin_usage_minutes(days: int = Query(7, ge=1, le=90), usage: UsageService = Depends(get_usage_service)) -> dict:
+    return _report_call(usage.minutes_summary, tu=datetime.now(timezone.utc) - timedelta(days=days), den=None, top=10)
 
 
 # ---- quản trị key + file mô tả (admin token) ----

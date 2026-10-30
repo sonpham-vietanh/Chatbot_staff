@@ -34,8 +34,12 @@ def fold(text: str) -> str:
     return "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
 
 
+AI_UPPER = re.compile(r"\bAI\b")
+
+
 def tokens(text: str, *, keep_stopwords: bool = False) -> list[str]:
-    words = re.findall(r"\w+", fold(text))
+    # "AI" viết hoa là trí tuệ nhân tạo (JD nhân viên AI), khác "ai" = who là từ bỏ qua: đổi thành token riêng trước khi bỏ dấu.
+    words = re.findall(r"\w+", fold(AI_UPPER.sub("aitech", text)))
     if not keep_stopwords:
         words = [w for w in words if w not in STOPWORDS and (len(w) > 1 or w.isdigit())]
     grams = [f"{a}_{b}" for a, b in zip(words, words[1:])]
@@ -93,6 +97,11 @@ class LexicalStore:
         except Exception:  # noqa: BLE001
             return 0
         return len(self._docs)
+
+    def info(self) -> dict[str, Any]:
+        """Tình trạng chỉ mục cho /health/deep: số đoạn đang nạp và số giây kể từ lần nạp gần nhất (không kích hoạt nạp lại)."""
+        loaded = self._loaded_at
+        return {"chunks": len(self._docs), "age_seconds": round(time.monotonic() - loaded) if loaded else None}
 
     def _ensure_fresh(self) -> None:
         if time.monotonic() - self._loaded_at < self.ttl and self._docs:

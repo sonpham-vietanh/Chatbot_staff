@@ -231,3 +231,128 @@ def test_greeting_does_not_wait_for_the_askers_profile_lookup(monkeypatch):
         assert called == [1]                                 # câu thật: có lấy
     finally:
         app.dependency_overrides.clear()
+
+
+def test_followups_stay_on_the_topic_of_the_question_not_the_answer():
+    picked = suggest_followups("Nghỉ kết hôn được mấy ngày?", "Bản thân kết hôn được 3 ngày. Lương và thưởng Tết vẫn được tính, thử việc thì khác.")
+    assert any("tang" in item for item in picked) and any("phép" in item for item in picked)
+    assert not any(word in item for item in picked for word in ("Thưởng", "Thử việc", "Overtime"))
+    assert any("tang" in item.lower() or "kết hôn" in item for item in suggest_followups("đám cưới có hỗ trợ gì không"))
+    # câu hỏi nối tiếp không có chủ đề: lấy chủ đề nổi nhất của câu trả lời, không trộn mọi chủ đề nó nhắc
+    follow = suggest_followups("còn giáo viên thì sao?", "Làm thêm giờ (overtime) ngày lễ tính hệ số 3; tăng ca ban đêm cũng vậy. Nghỉ phép năm 12 ngày.")
+    assert follow and all("Overtime" in item or "overtime" in item.lower() or "OT" in item or "bảng" in item or "trực" in item for item in follow)
+
+
+def test_about_bot_questions_get_an_instant_reply_but_real_questions_do_not():
+    quick = AdvancedRAGPipeline._quick_reply
+    for q in ("bạn là ai", "Bot là gì?", "bạn là ai vậy", "bạn làm được gì", "bot có thể giúp gì"):
+        assert "trợ lý nội bộ" in (quick(q) or ""), q
+    assert quick("bạn là ai mà biết lương tôi") is None and quick("nghỉ phép năm mấy ngày") is None
+
+
+def test_abbreviation_synonyms_expand_only_when_matched():
+    expand = AdvancedRAGPipeline._with_synonyms
+    assert "hợp đồng lao động" in expand("hđ thử việc") and "hợp đồng lao động" in expand("HDLD là gì")
+    assert "overtime" in expand("OT cho kế toán") and "giám thị" in expand("gt trực trưa")
+    assert "VBI" in expand("cưới thì được nghỉ mấy ngày") and "kết hôn" in expand("đám cưới có hỗ trợ không")
+    assert "thời gian thử việc" in expand("thử việc bao lâu")
+    for normal in ("thưởng cuối năm là bao nhiêu", "nghỉ cuối tuần có tính phép không", "hot line của trường", "got it", "chi phí cuối kỳ"):
+        assert expand(normal) == normal, normal
+
+
+class _Profiles:
+    def __init__(self, in_directory=True):
+        self.in_directory = in_directory
+
+    def get(self, email):
+        return {"in_directory": self.in_directory, "display_name": "Lan", "department": "HR", "job_title": "Chuyên viên",
+                "manager": {"display_name": "Tiến"}, "employment_start_date": "2025-04-15", "tenure": "1 năm 6 tháng"}
+
+
+def test_questions_about_the_boss_or_others_never_return_the_askers_own_email():
+    rag = SimpleNamespace(profiles=_Profiles(), wigs=_Wigs())
+    ask = lambda q: (routes._own_info_answer(rag, {"email": "lan@truongvietanh.com"}, q) or {}).get("answer", "")
+    for question in ("sếp em email gì", "email của sếp tôi là gì", "cho em xin email của giám đốc"):
+        answer = ask(question)
+        assert "lan@truongvietanh.com" not in answer and "riêng tư" in answer
+    assert "lan@truongvietanh.com" in ask("email của tôi là gì")                     # hỏi về chính mình vẫn đúng
+
+
+def test_forgotten_email_password_is_routed_to_it_support_not_profile_lookup():
+    rag = SimpleNamespace(profiles=_Profiles(), wigs=_Wigs())
+    for question in ("quên mật khẩu email", "em quên mật khẩu email rồi"):
+        answer = routes._own_info_answer(rag, {"email": "lan@truongvietanh.com"}, question)["answer"]
+        assert "IT" in answer and "lan@truongvietanh.com" not in answer
+
+
+def test_policy_or_review_questions_are_not_answered_with_the_profile_table():
+    rag = SimpleNamespace(profiles=_Profiles(in_directory=False), wigs=_Wigs())
+    ask = lambda q: routes._own_info_answer(rag, {"email": "moi@truongvietanh.com"}, q)
+    for question in ("phép thâm niên của em tính thế nào", "phép thâm niên tính thế thế nào", "review phòng ban của em",
+                     "cách tính thâm niên của tôi ra sao"):
+        assert ask(question) is None                                                  # để đường hỏi đáp thường trả lời quy định
+    assert "danh bạ" in ask("hồ sơ của tôi")["answer"]                                # tra hồ sơ thật vẫn hoạt động
+
+
+def test_mixed_question_answers_the_manager_name_and_refuses_only_the_private_part():
+    rag = SimpleNamespace(profiles=_Profiles(), wigs=_Wigs())
+    answer = routes._own_info_answer(rag, {"email": "lan@truongvietanh.com"}, "sếp em là ai, cho em sdt sếp")["answer"]
+    assert "Tiến" in answer and "riêng tư" in answer and "lan@truongvietanh.com" not in answer
+
+
+def test_wig_overdue_due_soon_remaining_and_howto_questions_get_their_own_answers():
+    class Wigs(_Wigs):
+        def chat_overdue(self, email):
+            return "OVERDUE"
+
+        def chat_due_soon(self, email):
+            return "SOON"
+
+        def chat_remaining(self, email):
+            return "REMAINING"
+
+        def chat_howto(self):
+            return "HOWTO"
+
+    rag = SimpleNamespace(wigs=Wigs())
+    ask = lambda q: (routes._own_wig_answer(rag, {"email": "lan@truongvietanh.com"}, q) or {}).get("answer")
+    assert ask("WIG nào quá hạn rồi") == "OVERDUE"
+    assert ask("WIG nào sắp đến hạn nhất") == "SOON"
+    assert ask("còn bao nhiêu WIG chưa xong") == "REMAINING"
+    assert ask("cách nhập WIG như thế nào") == "HOWTO" and ask("nhập WIG ở đâu") == "HOWTO"
+    assert ask("WIG của tôi tới đâu rồi") == "ACTIVE"
+
+
+def test_wig_service_chat_answers_overdue_due_soon_and_remaining(monkeypatch):
+    from datetime import date, timedelta
+
+    from app.services.wig_service import WigService
+
+    today = date.today()
+    base = {"period_label": "Q4/2026", "metric_name": "x", "unit": None, "start_value": 0, "target_value": 10, "status": "active"}
+    rows = [
+        {**base, "title": "Trễ", "current_value": 2, "due_date": str(today - timedelta(days=3))},
+        {**base, "title": "Gần", "current_value": 5, "due_date": str(today + timedelta(days=2))},
+        {**base, "title": "Xa", "current_value": 1, "due_date": str(today + timedelta(days=30))},
+        {**base, "title": "Xong rồi", "current_value": 10, "due_date": None},
+    ]
+    service = WigService.__new__(WigService)
+    monkeypatch.setattr(service, "list_for", lambda owner, include_dropped=False: [service.decorate(r) for r in rows], raising=False)
+    overdue, soon, remaining = service.chat_overdue("a@x.com"), service.chat_due_soon("a@x.com"), service.chat_remaining("a@x.com")
+    assert "Trễ" in overdue and "Gần" not in overdue
+    assert soon.startswith("WIG sắp đến hạn nhất: **Gần**") and "Xa" in soon and "1 WIG quá hạn" in soon
+    assert "3 WIG chưa xong" in remaining and "đã đạt mục tiêu" in remaining and "Xong rồi" not in remaining
+    assert "Thêm WIG" in service.chat_howto()
+
+
+def test_notice_already_given_earlier_in_the_conversation_is_not_repeated():
+    turns = [{"role": "user", "content": "x"}, {"role": "assistant", "content": "Mốc này HR chưa chốt chính thức."}]
+    assert "không nhắc lại" in routes._with_no_repeat_note("- Họ tên: Lan", turns, "còn thử việc thì sao", None)
+    assert routes._with_no_repeat_note("A", [{"role": "assistant", "content": "ok"}], "câu hỏi", None) == "A"
+    assert routes._with_no_repeat_note(None, turns, "xin chào", lambda q: "hi") is None
+
+
+def test_uppercase_ai_is_kept_as_token_but_lowercase_ai_stays_stopword():
+    from app.rag.lexical_store import tokens
+    assert "aitech" in tokens("Nhân viên AI làm gì")
+    assert "aitech" not in tokens("ai là sếp của tôi")

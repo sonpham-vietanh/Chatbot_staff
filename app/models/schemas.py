@@ -146,7 +146,10 @@ class ProfileUpdateRequest(BaseModel):
 
 
 class ChangeRequestCreate(BaseModel):
-    """Giá trị được kiểm tra chi tiết (độ dài theo từng trường, định dạng ngày) ở service để trả thông báo tiếng Việt."""
+    """Giá trị được kiểm tra chi tiết (độ dài theo từng trường, định dạng ngày) ở service để trả thông báo tiếng Việt.
+    Khoá lạ bị từ chối (422) thay vì bị bỏ qua âm thầm."""
+    model_config = ConfigDict(extra="forbid")
+
     field: Annotated[str, StringConstraints(strip_whitespace=True, max_length=50)]
     new_value: Annotated[str, StringConstraints(max_length=2000)]
     reason: Annotated[str, StringConstraints(max_length=2000)] | None = None
@@ -246,6 +249,10 @@ class LeaderUpsertRequest(BaseModel):
     display_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
     departments: list[Department] = Field(default_factory=list, max_length=5)
     active: bool = True
+
+
+class HeartbeatRequest(BaseModel):
+    session_id: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
 
 
 class ReportKeyCreateRequest(BaseModel):

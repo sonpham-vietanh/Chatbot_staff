@@ -194,7 +194,7 @@ def test_chat_strips_source_tags_even_when_retrieval_is_not_grounded():
     dòng đó không được lọt ra câu trả lời."""
     pipeline = make_pipeline("Chào bạn, mình là trợ lý.\n[Nguồn: a.md > Heading > 0.1]", score=0.05)
 
-    result = pipeline.chat("Bạn là ai vậy")
+    result = pipeline.chat("Công ty có mấy giá trị cốt lõi")
 
     assert result == {"answer": "Chào bạn, mình là trợ lý.", "grounded": False, "citations": []}
 
@@ -243,6 +243,14 @@ def test_missing_doc_marker_is_hidden_from_users_and_still_files_a_gap_note():
         assert MISSING_DOC_RE.sub("", f"Trả lời.\n{raw}").strip() == "Trả lời."
 
 
+def test_prompt_asks_for_related_info_instead_of_flat_refusal_but_keeps_no_invention():
+    from app.rag.prompt_builder import build_prompt
+
+    prompt = build_prompt("tết được nghỉ bao lâu", [])
+    assert "KHÔNG từ chối hẳn" in prompt and "tuyệt đối không bịa" in prompt
+    assert "ngoài phạm vi" in prompt and "QUY TẮC ĐỊNH DẠNG" in prompt  # quy tắc cũ vẫn còn
+
+
 # ---------- LLM qua endpoint kiểu OpenAI + dự phòng ----------
 def _provider(handler, **kwargs):
     import httpx
@@ -268,6 +276,7 @@ def test_endpoint_provider_sends_bearer_model_and_no_openrouter_headers():
     assert answer == "Xin chào"
     assert seen["url"] == "https://endpoint.example/v1/chat/completions" and seen["auth"] == "Bearer khoa-test"
     assert seen["referer"] is None and seen["body"]["model"] == "cc/claude-sonnet-5-5" and seen["body"]["max_tokens"] == 2000
+    assert seen["body"]["temperature"] == 0.0  # câu trả lời quy định phải ổn định giữa các lần hỏi
 
 
 def httpx_response(payload=None, status=200, text=None):

@@ -858,9 +858,9 @@ async function openSourceNote(source) {
 async function renderStats() {
   const box = $("view-stats");
   box.innerHTML = '<p class="empty">Đang tải thống kê…</p>';
-  let data, health = {};
+  let data, health = {}, unanswered = null, minutes = null;
   try {
-    [data, health] = await Promise.all([api("/analytics"), fetch("/api/health").then(r => r.json()).catch(() => ({}))]);
+    [data, health, unanswered, minutes] = await Promise.all([api("/analytics"), fetch("/api/health").then(r => r.json()).catch(() => ({})), api("/unanswered?days=7").catch(() => null), api("/usage-minutes?days=7").catch(() => null)]);
   } catch (error) {
     if (error.message !== "unauthorized") box.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
     return;
@@ -871,6 +871,7 @@ async function renderStats() {
     [`${groundedRate}%`, "Câu trả lời có trích dẫn nguồn"],
     [health.approved_notes ?? "—", "Tài liệu đã duyệt"],
   ];
+  if (minutes) cards.push([minutes.tong_phut, "Phút sử dụng (7 ngày)"], [minutes.phut_trung_binh_moi_nguoi, "Phút trung bình mỗi người"]);
   box.innerHTML = `
     <div class="stat-cards">${cards.map(([value, label]) => `
       <div class="card stat-card"><div class="rule"></div><div class="value">${escapeHtml(value)}</div><div class="label">${escapeHtml(label)}</div></div>`).join("")}
@@ -878,6 +879,9 @@ async function renderStats() {
     <div class="stat-lists">
       <section class="card stat-list"><h2>Tài liệu được trích dẫn nhiều nhất</h2>${renderStatRows(data.top_sources, row => row.source)}</section>
       <section class="card stat-list"><h2>Câu hỏi được hỏi nhiều nhất</h2>${renderStatRows(data.top_questions, row => row.question)}</section>
+      <section class="card stat-list"><h2>Câu hỏi bot hay chưa trả lời được (7 ngày)</h2>${unanswered ? renderStatRows(unanswered.questions, row => row.question) : '<p class="muted">Không tải được dữ liệu.</p>'}</section>
+      <section class="card stat-list"><h2>Thời gian sử dụng (phút) theo người, 7 ngày</h2>${minutes ? renderStatRows(minutes.nguoi_dung_nhieu_nhat.map(r => ({ text: r.ten || r.email, count: r.so_phut })), row => row.text) : '<p class="muted">Không tải được dữ liệu.</p>'}</section>
+      <section class="card stat-list"><h2>Thời gian sử dụng (phút) theo ngày</h2>${minutes ? renderStatRows(minutes.theo_ngay.map(r => ({ text: r.ngay + " · " + r.so_nguoi + " người", count: r.so_phut })), row => row.text) : '<p class="muted">Không tải được dữ liệu.</p>'}</section>
     </div>`;
 }
 

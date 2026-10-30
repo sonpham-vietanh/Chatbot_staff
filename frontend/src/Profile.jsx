@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Check, History, Plus, RotateCcw, Trash2 } from 'lucide-react'
-import { errorMessage, networkMessage } from './api.js'
+import { errorMessage, networkMessage, VI_FORM } from './api.js'
 
 const STATUS_LABELS = { active: 'Đang chạy', done: 'Hoàn thành', dropped: 'Đã bỏ' }
 const OWN_KEYS = ['phone', 'zalo', 'birth_date', 'gender', 'address', 'education', 'expertise', 'bio', 'emergency_name', 'emergency_relation', 'emergency_phone']
@@ -133,7 +133,7 @@ function WigCard({ wig, onChanged, notify, authFetch, readOnly = false }) {
       )}
 
       {mode === 'progress' && !readOnly && (
-        <form className="pf-inline" onSubmit={saveProgress}>
+        <form className="pf-inline" onSubmit={saveProgress} {...VI_FORM}>
           <label className="pf-field">Giá trị hiện tại{wig.unit ? ` (${wig.unit})` : ''}
             <input type="number" step="any" required value={value} onChange={(event) => setValue(event.target.value)} />
           </label>
@@ -205,12 +205,12 @@ function FactRow({ label, display, spec, rawValue, pending, canRequest, onSubmit
         <button type="button" className="pf-link pf-req-btn" onClick={() => { setValue(spec.type === 'date' ? (rawValue || '') : ''); setError(''); setOpen(true) }}>Yêu cầu sửa</button>
       )}
       {spec && canRequest && !pending && open && (
-        <form className="pf-req-form" onSubmit={submit}>
+        <form className="pf-req-form" onSubmit={submit} {...VI_FORM}>
           <label className="pf-field">Giá trị mới
-            <input type={spec.type === 'date' ? 'date' : 'text'} required maxLength={spec.type === 'date' ? undefined : spec.max_length} value={value} onChange={(event) => setValue(event.target.value)} />
+            <input type={spec.type === 'date' ? 'date' : 'text'} required data-msg="Vui lòng nhập giá trị mới."  maxLength={spec.type === 'date' ? undefined : spec.max_length} value={value} onChange={(event) => setValue(event.target.value)} />
           </label>
           <label className="pf-field">Lý do <span className="pf-required" aria-hidden="true">*</span> <span className="pf-muted">(bắt buộc, tối thiểu 5 ký tự)</span>
-            <input required minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: đổi chức danh theo quyết định mới" />
+            <input required minLength={5} maxLength={500} data-msg="Vui lòng nhập lý do chỉnh sửa (ít nhất 5 ký tự) để HR kiểm tra nhanh hơn." value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: đổi chức danh theo quyết định mới" />
           </label>
           {error && <p className="pf-req-error" role="alert">{error}</p>}
           <div className="pf-actions">
@@ -463,7 +463,7 @@ export default function Profile({ authFetch: authFetchProp }) {
                 </div>
 
                 {adding && (
-                  <form className="pf-card pf-form" onSubmit={createWig}>
+                  <form className="pf-card pf-form" onSubmit={createWig} {...VI_FORM}>
                     <label className="pf-field wide">Tên WIG<input required maxLength={200} {...field('title')} placeholder="Ví dụ: Tăng tỷ lệ báo cáo đúng hạn" /></label>
                     <label className="pf-field">Kỳ<input required maxLength={40} {...field('period_label')} /></label>
                     <label className="pf-field">Hạn hoàn thành<input type="date" {...field('due_date')} /></label>
@@ -491,7 +491,7 @@ export default function Profile({ authFetch: authFetchProp }) {
             )}
 
             {tab === 'info' && (
-              <form className="pf-card pf-form" onSubmit={saveOwn}>
+              <form className="pf-card pf-form" onSubmit={saveOwn} {...VI_FORM}>
                 <div className="wide">
                   <h2>Thông tin cá nhân</h2>
                   <p className="pf-optional">Các mục này không bắt buộc.</p>

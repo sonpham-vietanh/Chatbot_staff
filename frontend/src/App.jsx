@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ArrowUp, Flag, Menu, Plus, X } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import { MarkdownView } from './markdown.jsx'
-import { errorMessage, networkMessage } from './api.js'
+import { authErrorMessage, errorMessage, networkMessage, readChatStream, startHeartbeat, VI_FORM } from './api.js'
 // Hai trang này chỉ tải khi người dùng vào đó, để màn hình chat/đăng nhập tải nhanh hơn
 const Manage = lazy(() => import('./Manage.jsx'))
 const Profile = lazy(() => import('./Profile.jsx'))
@@ -91,6 +91,7 @@ function App() {
   const [messages, setMessages] = useState([])
   const [health, setHealth] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [streamText, setStreamText] = useState('') // chữ tạm của câu trả lời đang stream
   const [mobileNav, setMobileNav] = useState(false)
   const [meError, setMeError] = useState('') // lỗi tạm thời khi kiểm tra phiên (503/mất mạng) — KHÔNG xoá token
   const [meRetry, setMeRetry] = useState(0)
@@ -137,10 +138,10 @@ function App() {
         const callbackError = params.get('error_description') || params.get('error')
         if (callbackError) {
           window.history.replaceState({}, document.title, window.location.pathname)
-          setAuthError(callbackError)
+          setAuthError(authErrorMessage(callbackError))
         }
       } catch (error) {
-        if (!cancelled) setAuthError(error.message || 'Không thể khởi tạo đăng nhập Google.')
+        if (!cancelled) setAuthError(authErrorMessage(error.message) || 'Không thể khởi tạo đăng nhập Google.')
       } finally {
         if (!cancelled && !localStorage.getItem(TOKEN_KEY)) setAuthChecked(true)
       }
@@ -154,7 +155,7 @@ function App() {
 
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, loading])
+  }, [messages, loading, streamText])
 
   useEffect(() => {
     if (!token) {
@@ -184,6 +185,13 @@ function App() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, meRetry])
+
+  // Đếm phút sử dụng: chỉ chạy khi đã đăng nhập (xem startHeartbeat trong api.js)
+  useEffect(() => {
+    if (!user?.id) return undefined
+    return startHeartbeat(authFetch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   // Nhớ thread đang xem (chỉ sau khi đã thử khôi phục, để lần render đầu không ghi đè bằng null)
   useEffect(() => {
@@ -376,7 +384,7 @@ function App() {
       },
     })
     if (error) {
-      setAuthError(error.message)
+      setAuthError(authErrorMessage(error.message))
       setAuthLoading(false)
     }
   }
@@ -420,7 +428,7 @@ function App() {
       },
     })
     if (error) {
-      setAuthError(error.message)
+      setAuthError(authErrorMessage(error.message))
       setAuthLoading(false)
     }
   }
@@ -466,8 +474,9 @@ function App() {
       : [...current, { role: 'user', text }]))
     setLoading(true)
     setPendingView(viewAtSend)
+    setStreamText('')
     try {
-      const response = await authFetch('/api/chat-staff', {
+      const request = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -475,16 +484,30 @@ function App() {
           history,
           thread_id: activeThreadId,
         }),
-      })
-      if (response.status === 401) {
+      }
+      // Ưu tiên stream để chữ hiện dần; trình duyệt/mạng/proxy không stream được hoặc endpoint lỗi thì rơi về /chat-staff thường
+      let response = null
+      let data = null
+      try {
+        response = await authFetch('/api/chat-staff/stream', request)
+        if (response.ok && response.body && /text\/event-stream/i.test(response.headers.get('content-type') || '')) {
+          data = await readChatStream(response, (preview) => { if (stillHere()) setStreamText(preview) })
+        }
+      } catch (error) {
+        if (error.streamBroken) throw error
+      }
+      if (!data && ![401, 422, 429].includes(response?.status)) response = await authFetch('/api/chat-staff', request)
+      if (response.status === 401 && !data) {
         saveDraft(text) // giữ lại câu đang hỏi để khôi phục sau khi đăng nhập lại
         setAuthError('Phiên đã hết hạn, vui lòng đăng nhập lại')
         clearSession()
         return
       }
-      const data = await readApiResponse(response)
-      if (!response.ok) {
-        throw new Error(errorMessage(data, response.status, `Máy chủ trả về lỗi (HTTP ${response.status}).`))
+      if (!data) {
+        data = await readApiResponse(response)
+        if (!response.ok) {
+          throw new Error(errorMessage(data, response.status, `Máy chủ trả về lỗi (HTTP ${response.status}).`))
+        }
       }
       if (data.thread_id) loadThreads()
       // Người dùng đã sang thread khác trong lúc chờ: không chèn câu trả lời / không đổi thread
@@ -498,6 +521,7 @@ function App() {
     } finally {
       setLoading(false)
       setPendingView(null)
+      setStreamText('')
     }
   }
 
@@ -644,7 +668,10 @@ function App() {
                     />
                   )
                 })}
-                {loading && pendingView === viewKey && (
+                {loading && pendingView === viewKey && streamText && (
+                  <Message message={{ role: 'assistant', text: streamText }} />
+                )}
+                {loading && pendingView === viewKey && !streamText && (
                   <div className="flex items-center gap-4">
                     <div className="va-mark">VA</div>
                     <div className="flex items-center gap-3 text-muted"><span className="typing"><i /><i /><i /></span>Đang tra cứu tài liệu nội bộ…</div>
@@ -717,12 +744,12 @@ function AuthScreen({ mode, setMode, form, setForm, onSubmit, loading, error, on
 
           <div className="my-7 flex items-center gap-3 text-muted"><span className="h-px flex-1 bg-line" />hoặc dùng email<span className="h-px flex-1 bg-line" /></div>
 
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <form onSubmit={onSubmit} className="flex flex-col gap-4" {...VI_FORM}>
             {mode === 'signup' && (
-              <label className="field">Họ tên<input required value={form.display_name} onChange={update('display_name')} placeholder="Nguyễn Văn A" /></label>
+              <label className="field">Họ tên<input required data-msg="Vui lòng nhập họ tên." value={form.display_name} onChange={update('display_name')} placeholder="Nguyễn Văn A" /></label>
             )}
-            <label className="field">Email<input required type="email" value={form.email} onChange={update('email')} placeholder="ten@truongvietanh.com" /></label>
-            <label className="field">Mật khẩu<input required type="password" minLength={6} value={form.password} onChange={update('password')} placeholder="Tối thiểu 6 ký tự" /></label>
+            <label className="field">Email<input required type="email" data-msg="Vui lòng nhập email hợp lệ, ví dụ ten@truongvietanh.com." value={form.email} onChange={update('email')} placeholder="ten@truongvietanh.com" /></label>
+            <label className="field">Mật khẩu<input required type="password" minLength={6} data-msg="Vui lòng nhập mật khẩu (tối thiểu 6 ký tự)." value={form.password} onChange={update('password')} placeholder="Tối thiểu 6 ký tự" /></label>
             {error && <p className="text-danger" role="alert">{error}</p>}
             <button disabled={loading} className="btn btn-cta mt-2 w-full">{loading ? 'Đang xử lý...' : `${mode === 'login' ? 'Đăng nhập' : 'Đăng ký'} →`}</button>
           </form>

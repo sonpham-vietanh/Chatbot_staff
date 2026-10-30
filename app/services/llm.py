@@ -49,6 +49,10 @@ class LLMProvider(ABC):
     def describe_image(self, image_bytes: bytes, mime_type: str) -> str:
         ...
 
+    def answer_stream(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None):
+        """Sinh câu trả lời dần theo từng mẩu chữ. Provider không hỗ trợ stream thì trả một cục (rơi về `answer`)."""
+        yield self.answer(question, contexts, history, asker)
+
     def complete(self, prompt: str, max_tokens: int = 200) -> str:
         """Gọi ngắn, không guardrail — dùng cho việc phụ như viết lại câu hỏi nối tiếp. Rỗng = không hỗ trợ."""
         return ""
@@ -88,7 +92,7 @@ class GeminiLLMProvider(LLMProvider):
         self.client = genai.Client(api_key=api_key)
         self.model = model
         self.config = types.GenerateContentConfig(
-            temperature=0.3,
+            temperature=0.0,  # câu trả lời quy định phải ổn định: cùng câu hỏi không lúc trả lời lúc từ chối
             max_output_tokens=2000,
         )
 
@@ -171,6 +175,39 @@ class OpenAICompatibleLLMProvider(LLMProvider):
             content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         return str(content or "").strip()
 
+    def answer_stream(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None):
+        """Như `answer` nhưng dùng `stream: true`, yield từng mẩu chữ khi model sinh ra. Không thử lại 429 ở đây
+        (đã lỡ giữ kết nối); lỗi ném LLMError để lớp dự phòng chuyển phương án nếu chưa có chữ nào."""
+        payload = {"model": self.model, "messages": [{"role": "user", "content": build_prompt(question, contexts, history, asker)}],
+                   "temperature": 0.0, "max_tokens": 2000, "stream": True}
+        got_any = False
+        with self._slots:
+            try:
+                with self._http.stream("POST", self.url, headers=self._headers(), json=payload, timeout=httpx.Timeout(90, connect=10)) as response:
+                    if response.is_error:
+                        response.read()
+                        raise LLMError(f"{self.label} HTTP {response.status_code}: {response.text[:300]}",
+                                       response.status_code, self._retry_after(response) if response.status_code == 429 else None)
+                    for line in response.iter_lines():
+                        line = line.strip()
+                        if not line.startswith("data:") or line.endswith("[DONE]"):
+                            continue
+                        try:
+                            choices = json.loads(line[5:]).get("choices", [])
+                        except ValueError:
+                            continue
+                        for choice in choices:
+                            content = (choice.get("delta") or {}).get("content")
+                            if isinstance(content, list):
+                                content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                            if content:
+                                got_any = True
+                                yield str(content)
+                    if not got_any:  # endpoint không stream được (trả JSON thường hoặc rỗng): coi như lỗi để dự phòng xử lý
+                        raise LLMError(f"{self.label} không trả nội dung ở chế độ stream", 502)
+            except httpx.HTTPError as error:
+                raise LLMError(f"{self.label} không kết nối được: {type(error).__name__}") from error
+
     @staticmethod
     def _retry_after(response: httpx.Response) -> float:
         try:
@@ -196,7 +233,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         return "".join(parts)
 
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
-        text = self._chat([{"role": "user", "content": build_prompt(question, contexts, history, asker)}], 2000, 0.3, 90)
+        text = self._chat([{"role": "user", "content": build_prompt(question, contexts, history, asker)}], 2000, 0.0, 90)  # 0.0: cùng câu hỏi cho cùng kết luận
         return text or FALLBACK_ANSWER
 
     def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
@@ -279,6 +316,31 @@ class FallbackLLMProvider(LLMProvider):
 
     def answer(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None) -> str:
         return self._call("answer", question, contexts, history, *((asker,) if asker else ()))  # chỉ truyền khi có (provider cũ nhận 3 tham số)
+
+    def answer_stream(self, question: str, contexts: list[dict], history: list[dict] | None = None, asker: str | None = None):
+        """Stream từ phương án chính; lỗi TRƯỚC chữ đầu tiên thì chuyển sang dự phòng như `_call`. Đã có chữ rồi mới lỗi
+        thì ném lỗi ra (không thể ghép hai câu trả lời của hai model)."""
+        args = (question, contexts, history, *((asker,) if asker else ()))
+        if not self._primary_skipped():
+            started = False
+            try:
+                for piece in self.primary.answer_stream(*args):
+                    started = True
+                    yield piece
+                return
+            except Exception as error:
+                if started:
+                    raise
+                self._primary_failed(error)
+        started = False
+        try:
+            for piece in self.secondary.answer_stream(*args):
+                started = True
+                yield piece
+        except Exception:
+            if not started and self._primary_error is not None:
+                raise self._primary_error
+            raise
 
     def complete_strict(self, prompt: str, max_tokens: int = 200) -> str:
         return self._call("complete_strict", prompt, max_tokens)
