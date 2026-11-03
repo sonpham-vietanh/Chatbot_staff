@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 DOMAIN_TO_DEPARTMENT = {
     "nhan-su": "HR",
     "tai-chinh": "Finance",
-    "hoc-thuat-chuong-trinh": "Academic",
+    # "Academic" khong khop gia tri department that trong employee_directory (vd "Tieu hoc",
+    # "THCS - THPT", "Mam non"...) - giao vien thuoc nhieu department khac nhau, khong co 1
+    # department rieng cho "giao vien". Dung "Unassigned" (= SHARED_DEPARTMENT trong
+    # lexical_store.py/vector_store.py) de moi nhan vien deu thay duoc, thay vi bi khoa cung
+    # vao 1 department khong ai co.
+    "hoc-thuat-chuong-trinh": "Unassigned",
     "van-hanh-co-so": "Admin",
     "marketing-tuyen-sinh": "Admin",
     "sales-cskh": "Admin",
