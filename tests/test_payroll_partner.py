@@ -263,6 +263,7 @@ def test_http_chat_answers_as_the_signed_employee_in_plain_text(api):
     assert response.status_code == 200
     data = response.json()
     assert data["grounded"] is True and "**" not in data["answer"] and "Phiếu lương" in data["answer"]
+    assert data["answer_markdown"].startswith("**Xem phiếu lương**")  # bản giữ định dạng cho bong bóng
     assert api.chats[0].department == "HR" and "Nguyễn Thị Lan" in api.chats[0].extra["asker"]
     assert api.env.client.tables["chat_logs"][0]["user_email"] == "lan@truongvietanh.com"
 

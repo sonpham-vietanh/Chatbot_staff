@@ -12,7 +12,7 @@ from app.api.routes import (
     NO_STORE, _asker_context, _llm_failure, _log_chat, _own_info_answer, _track, _with_no_repeat_note, get_rag_service, require_admin,
 )
 from app.models.schemas import ChatRequest, ChatResponse
-from app.rag.answer_format import to_plain_text
+from app.rag.answer_format import clean_markdown, to_plain_text
 from app.rag.suggestions import suggest_followups
 from app.services.directory_service import EMAIL_RE, normalize_email
 from app.services.payroll_partner_service import (
@@ -116,11 +116,14 @@ def payroll_chat(
             result = rag.chat(request.question, turns, asker_department=row.get("department"), **extra)
         except Exception as error:
             raise _llm_failure(error) from error
+    # `answer` là văn bản thuần (tương thích cũ); `answer_markdown` giữ **đậm** và "- " gạch đầu dòng như giao diện chính để bong bóng vẽ đẹp.
+    markdown = clean_markdown(result["answer"])
     result = {**result, "answer": to_plain_text(result["answer"])}
     result["suggestions"] = suggest_followups(request.question, result["answer"])
     background_tasks.add_task(_log_chat, rag.supabase, request.question, result, email)
     _track(background_tasks, rag, "hoi_dap", user, {"tra_loi_duoc": bool(result["grounded"]), "so_nguon": len(result["citations"]), "nguon": PARTNER_SOURCE})
-    return JSONResponse(ChatResponse(**result).model_dump(mode="json"), headers=NO_STORE)
+    payload = {**ChatResponse(**result).model_dump(mode="json"), "answer_markdown": markdown}
+    return JSONResponse(payload, headers=NO_STORE)
 
 
 @router.put("/partner/payroll/knowledge")
