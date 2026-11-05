@@ -130,6 +130,7 @@ class ChangeRequestService:
             self.client.update("profile_change_requests", {"id": f"eq.{request_id}"}, {"status": "pending", "reviewed_by": None, "reviewed_at": None})
             raise
         self.directory.audit(email, "admin", "request_approved", {field: {"old": row.get("old_value"), "new": new_value}})
+        self.directory.changed([{**current, field: new_value}])
         return request_view(updated[0]) if updated else request_view({**row, "status": "approved"})
 
     def reject(self, request_id: str, note: str | None) -> dict[str, Any]:

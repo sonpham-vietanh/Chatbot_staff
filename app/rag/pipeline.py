@@ -32,6 +32,7 @@ from app.services.directory_service import DirectoryService
 from app.services.profile_service import ProfileService
 from app.services.wig_service import WigService
 from app.services.usage_service import UsageService
+from app.services.payroll_partner_service import PayrollPartnerService
 from app.services.webhook_service import WebhookService
 from app.services.wiki_sync_service import WikiSyncService
 
@@ -139,6 +140,9 @@ class AdvancedRAGPipeline:
         self.profiles = ProfileService(self.supabase)
         self.directory = DirectoryService(self.supabase, getattr(settings, "allowed_email_domains", ""))
         self.change_requests = ChangeRequestService(self.supabase, self.directory)
+        self.payroll_webhook = WebhookService(getattr(settings, "payroll_webhook_url", None), getattr(settings, "payroll_webhook_secret", None))
+        self.payroll = PayrollPartnerService(self.supabase, self.admin, self.directory, self.payroll_webhook, getattr(settings, "payroll_inbound_secret", None))
+        self.directory.on_change = self.payroll.push_employees
         self.wigs = WigService(self.supabase, settings.admin_emails)
         self.points = PointsService(self.supabase)
         self.ingest_agent = IngestAgent(settings) if settings.vault_path and settings.anthropic_api_key else None

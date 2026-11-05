@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
+from app.api.partner_routes import router as partner_router
 from app.api.routes import get_rag_service, router
 from app.config import get_settings
 from app.services.api_key_service import normalize_origin
@@ -82,6 +83,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.include_router(partner_router)
 
 FIELD_LABELS = {
     "question": "Câu hỏi", "history": "Lịch sử hội thoại", "thread_id": "Mã cuộc trò chuyện", "title": "Tiêu đề", "content": "Nội dung",

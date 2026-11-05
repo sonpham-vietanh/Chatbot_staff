@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     os_webhook_url: str | None = None
     os_webhook_secret: str | None = None
     """Webhook đẩy sự kiện sử dụng sang Major OS (docs/webhook-major-os.md). Chỉ bật khi đặt CẢ HAI; thiếu một = tắt hoàn toàn."""
+    payroll_inbound_secret: str | None = None
+    """Khoá bí mật dùng chung để backend app lương ký HMAC các yêu cầu gọi vào bot (>= 32 ký tự). Để trống = tắt /api/partner/payroll/*."""
+    payroll_webhook_url: str | None = None
+    payroll_webhook_secret: str | None = None
+    """Webhook bot đẩy thay đổi danh bạ sang app lương (docs/tich-hop-app-luong.md). Chỉ bật khi đặt CẢ HAI."""
     anthropic_api_key: str | None = None
     vault_path: str | None = None
     vault_ready_marker: str | None = None

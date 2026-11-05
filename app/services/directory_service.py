@@ -150,6 +150,16 @@ class DirectoryService:
     def __init__(self, client: SupabaseClient, allowed_email_domains: str | None = ""):
         self.client = client
         self.allowed_domains = [d.strip().casefold().lstrip("@") for d in (allowed_email_domains or "").split(",") if d.strip()]
+        self.on_change = None  # callback(list[dict]) báo các dòng danh bạ vừa đổi (đẩy webhook sang app lương)
+
+    def changed(self, rows: list[dict[str, Any]]) -> None:
+        """Báo danh bạ vừa đổi. Lỗi của người nhận không bao giờ được làm hỏng thao tác của HR."""
+        if self.on_change is None or not rows:
+            return
+        try:
+            self.on_change(rows)
+        except Exception:
+            logger.warning("Không báo được thay đổi danh bạ", exc_info=True)
 
     # ---------- đọc ----------
     def get(self, email: str) -> dict[str, Any] | None:
@@ -239,9 +249,10 @@ class DirectoryService:
             raise
         row = (rows or [{"email": email, **fields, "active": True}])[0]
         self.audit(email, "admin", "create", {k: {"old": None, "new": v} for k, v in fields.items()})
+        self.changed([row])
         return row
 
-    def update(self, email: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def update(self, email: str, payload: dict[str, Any], actor: str = "admin", notify: bool = True) -> dict[str, Any]:
         email = normalize_email(email)
         current = self._require(email)
         fields = clean_fields(payload, allow_clear=True)
@@ -252,8 +263,11 @@ class DirectoryService:
             self._check_manager(email, changes["manager_email"]["new"], self._managers())
         patch = {key: change["new"] for key, change in changes.items()}
         rows = self.client.update("employee_directory", {"email": f"eq.{email}"}, {**patch, "updated_at": _now()})
-        self.audit(email, "admin", "hr_update", changes)
-        return rows[0] if rows else {**current, **patch}
+        self.audit(email, actor, "hr_update", changes)
+        row = rows[0] if rows else {**current, **patch}
+        if notify:
+            self.changed([row])
+        return row
 
     def deactivate(self, email: str, end_date: str | None = None) -> dict[str, Any]:
         email = normalize_email(email)
@@ -263,7 +277,9 @@ class DirectoryService:
         end = parse_date(end_date, "Ngày nghỉ việc") if end_date else (current.get("employment_end_date") or datetime.now(VN_TZ).date().isoformat())
         rows = self.client.update("employee_directory", {"email": f"eq.{email}"}, {"active": False, "employment_end_date": end, "updated_at": _now()})
         self.audit(email, "admin", "deactivate", {"active": {"old": True, "new": False}, "employment_end_date": {"old": current.get("employment_end_date"), "new": end}})
-        return rows[0] if rows else {**current, "active": False, "employment_end_date": end}
+        row = rows[0] if rows else {**current, "active": False, "employment_end_date": end}
+        self.changed([row])
+        return row
 
     def reactivate(self, email: str) -> dict[str, Any]:
         email = normalize_email(email)
@@ -272,7 +288,9 @@ class DirectoryService:
             raise DirectoryError(409, "Nhân viên này đang hoạt động.")
         rows = self.client.update("employee_directory", {"email": f"eq.{email}"}, {"active": True, "employment_end_date": None, "updated_at": _now()})
         self.audit(email, "admin", "reactivate", {"active": {"old": False, "new": True}, "employment_end_date": {"old": current.get("employment_end_date"), "new": None}})
-        return rows[0] if rows else {**current, "active": True, "employment_end_date": None}
+        row = rows[0] if rows else {**current, "active": True, "employment_end_date": None}
+        self.changed([row])
+        return row
 
     # ---------- nhập hàng loạt ----------
     def import_rows(self, rows: list[dict[str, Any]], dry_run: bool = True) -> dict[str, Any]:
@@ -344,5 +362,6 @@ class DirectoryService:
                 self.client.insert("profile_audit_log", audit_rows, returning=False)
             except Exception:
                 logger.warning("Không ghi được profile_audit_log khi nhập danh bạ", exc_info=True)
+            self.changed(batch)
         return {"dry_run": dry_run, "created": len(creates), "updated": len(updates), "unchanged": unchanged,
                 "errors": errors, "preview": sorted(preview, key=lambda item: item["row"])[:50]}
